@@ -462,9 +462,18 @@ function actualizarDashboardConDatosReales(filas) {
   const capitalInvertido = compras.reduce((sum, c) => sum + (parseFloat(c.Importe) || 0), 0);
 
   document.getElementById('kpi-capital').textContent = euro(capitalInvertido);
+  document.getElementById('kpi-capital-sub').textContent = compras.length + ' compras activas registradas';
+
   document.getElementById('kpi-ganancia').textContent = (gananciaTotal >= 0 ? '+' : '') + euro(gananciaTotal,2);
+  document.getElementById('kpi-ganancia-sub').textContent = 'de ' + ventas.length + ' ventas completadas';
+
   document.getElementById('kpi-ciclos').textContent = ventas.length;
+  document.getElementById('kpi-ciclos-sub').textContent = 'desde el inicio';
+
   document.getElementById('kpi-posicion').textContent = compras.length + ' compras registradas';
+  const ultimaCompra = compras[compras.length - 1];
+  document.getElementById('kpi-posicion-sub').textContent = ultimaCompra ?
+    ('última: ' + euro(parseFloat(ultimaCompra.Precio))) : '—';
 
   const impuestoEstimado = calcularImpuestos(Math.max(gananciaTotal, 0));
   document.getElementById('kpi-impuestos').textContent = euro(impuestoEstimado,2);
