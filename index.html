@@ -313,6 +313,12 @@ function euro(valor, decimales=0) {
   return '€' + Number(valor).toLocaleString('es-ES', {minimumFractionDigits:decimales, maximumFractionDigits:decimales});
 }
 
+function parseNum(valor) {
+  if (valor === null || valor === undefined || valor === '') return 0;
+  // normaliza formato decimal español (coma) a formato JS (punto)
+  return parseFloat(String(valor).replace(',', '.'));
+}
+
 // ============================================================
 // DATOS DE EJEMPLO (se usan solo si no hay datos reales aún)
 // ============================================================
@@ -344,13 +350,14 @@ function pintarTabla(movs) {
   movs.forEach(m=>{
     const tr = document.createElement('tr');
     const tieneResultado = m.resultado !== null && m.resultado !== undefined && m.resultado !== '';
-    const resTxt = tieneResultado ? (parseFloat(m.resultado) >= 0 ? '+' + euro(parseFloat(m.resultado),2) : euro(parseFloat(m.resultado),2)) : '—';
+    const resNum = tieneResultado ? parseNum(m.resultado) : null;
+    const resTxt = tieneResultado ? (resNum >= 0 ? '+' + euro(resNum,2) : euro(resNum,2)) : '—';
     tr.innerHTML = `
       <td>${m.fecha}</td>
       <td><span class="tag ${m.tipo==='BUY'?'buy':'sell'}">${m.tipo}</span></td>
-      <td>${euro(parseFloat(m.precio))}</td>
-      <td>${euro(parseFloat(m.importe),2)}</td>
-      <td>${m.promedio ? euro(parseFloat(m.promedio)) : '—'}</td>
+      <td>${euro(parseNum(m.precio))}</td>
+      <td>${euro(parseNum(m.importe),2)}</td>
+      <td>${m.promedio ? euro(parseNum(m.promedio)) : '—'}</td>
       <td class="${resTxt.startsWith('+')?'up':''}">${resTxt}</td>
     `;
     tbody.appendChild(tr);
@@ -458,8 +465,8 @@ function actualizarDashboardConDatosReales(filas) {
 
   const ventas = filas.filter(r => r.Tipo === 'SELL');
   const compras = filas.filter(r => r.Tipo === 'BUY');
-  const gananciaTotal = ventas.reduce((sum, v) => sum + (parseFloat(v.Resultado) || 0), 0);
-  const capitalInvertido = compras.reduce((sum, c) => sum + (parseFloat(c.Importe) || 0), 0);
+  const gananciaTotal = ventas.reduce((sum, v) => sum + (parseNum(v.Resultado) || 0), 0);
+  const capitalInvertido = compras.reduce((sum, c) => sum + (parseNum(c.Importe) || 0), 0);
 
   document.getElementById('kpi-capital').textContent = euro(capitalInvertido);
   document.getElementById('kpi-capital-sub').textContent = compras.length + ' compras activas registradas';
@@ -473,7 +480,7 @@ function actualizarDashboardConDatosReales(filas) {
   document.getElementById('kpi-posicion').textContent = compras.length + ' compras registradas';
   const ultimaCompra = compras[compras.length - 1];
   document.getElementById('kpi-posicion-sub').textContent = ultimaCompra ?
-    ('última: ' + euro(parseFloat(ultimaCompra.Precio))) : '—';
+    ('última: ' + euro(parseNum(ultimaCompra.Precio))) : '—';
 
   const impuestoEstimado = calcularImpuestos(Math.max(gananciaTotal, 0));
   document.getElementById('kpi-impuestos').textContent = euro(impuestoEstimado,2);
