@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<title>Cascada BTC — Panel</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0b0f0d;
+    --panel:#111713;
+    --line:#1e2b23;
+    --ink:#e8efe9;
+    --ink-dim:#7f9186;
+    --green:#3ddc84;
+    --green-dim:#1f5c3f;
+    --amber:#e0a530;
+    --mono:'JetBrains Mono','SF Mono',Consolas,monospace;
+    --sans:'Inter',system-ui,sans-serif;
+  }
+  [data-theme="light"]{
+    --bg:#f4f7f5;
+    --panel:#ffffff;
+    --line:#dde5e0;
+    --ink:#131a15;
+    --ink-dim:#5c6e63;
+    --green:#1f9d5c;
+    --green-dim:#c8f0da;
+    --amber:#b5790f;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    padding:28px 20px 60px;
+    transition:background 0.2s, color 0.2s;
+  }
+  .theme-toggle{
+    background:var(--panel);border:1px solid var(--line);color:var(--ink-dim);
+    font-family:var(--mono);font-size:11px;padding:6px 12px;border-radius:4px;
+    cursor:pointer;display:flex;align-items:center;gap:6px;
+  }
+  .theme-toggle:hover{color:var(--ink);border-color:var(--green);}
+  .wrap{max-width:960px;margin:0 auto;}
+
+  header{
+    display:flex;justify-content:space-between;align-items:baseline;
+    border-bottom:1px solid var(--line);
+    padding-bottom:18px;margin-bottom:24px;
+    flex-wrap:wrap;gap:10px;
+  }
+  .brand{display:flex;align-items:baseline;gap:10px;}
+  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--green);
+    box-shadow:0 0 8px var(--green);display:inline-block;}
+  h1{font-size:15px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-dim);}
+  .status{font-family:var(--mono);font-size:12px;color:var(--green);}
+  .updated{font-family:var(--mono);font-size:11px;color:var(--ink-dim);}
+
+  .kpis{
+    display:grid;grid-template-columns:repeat(5,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);
+    margin-bottom:24px;
+  }
+  .kpi{background:var(--panel);padding:18px 16px;}
+  .kpi .label{font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:8px;}
+  .kpi .value{font-family:var(--mono);font-size:22px;font-weight:600;}
+  .kpi .sub{font-family:var(--mono);font-size:11px;color:var(--ink-dim);margin-top:4px;}
+  .up{color:var(--green);}
+  .down{color:#e05a4e;}
+
+  .panel{
+    background:var(--panel);border:1px solid var(--line);
+    padding:20px;margin-bottom:20px;
+  }
+  .panel h2{
+    font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-dim);
+    margin-bottom:16px;display:flex;justify-content:space-between;
+  }
+  canvas{max-height:220px;}
+
+  table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;}
+  th{
+    text-align:left;color:var(--ink-dim);font-weight:500;font-size:10px;
+    text-transform:uppercase;letter-spacing:0.05em;
+    padding:8px 10px;border-bottom:1px solid var(--line);
+  }
+  td{padding:9px 10px;border-bottom:1px solid #16201a;}
+  tr:last-child td{border-bottom:none;}
+  .tag{
+    display:inline-block;padding:2px 7px;border-radius:3px;font-size:10px;
+    font-weight:600;letter-spacing:0.03em;
+  }
+  .tag.buy{background:rgba(61,220,132,0.12);color:var(--green);}
+  .tag.sell{background:rgba(224,165,48,0.12);color:var(--amber);}
+
+  .grid2{display:grid;grid-template-columns:1.4fr 1fr;gap:20px;}
+  @media (max-width:720px){
+    .kpis{grid-template-columns:repeat(2,1fr);}
+    .grid2{grid-template-columns:1fr;}
+  }
+
+  footer{
+    text-align:center;font-family:var(--mono);font-size:10px;color:var(--ink-dim);
+    margin-top:30px;letter-spacing:0.04em;
+  }
+  .placeholder-note{
+    background:rgba(224,165,48,0.08);border:1px solid rgba(224,165,48,0.25);
+    color:var(--amber);font-family:var(--mono);font-size:11px;
+    padding:10px 14px;margin-bottom:20px;
+  }
+  #login-screen{
+    position:fixed;inset:0;background:var(--bg);z-index:999;
+    display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;
+  }
+  #login-screen input{
+    background:var(--panel);border:1px solid var(--line);color:var(--ink);
+    font-family:var(--mono);font-size:14px;padding:10px 14px;border-radius:4px;
+    width:220px;text-align:center;
+  }
+  #login-screen button{
+    background:var(--green);color:#0b0f0d;border:none;padding:10px 20px;
+    border-radius:4px;font-family:var(--mono);font-weight:600;cursor:pointer;
+  }
+  #login-error{color:#e05a4e;font-family:var(--mono);font-size:12px;min-height:16px;}
+  #dashboard-content{display:none;}
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <h1 style="font-family:var(--mono);color:var(--ink);font-size:16px;">🔒 Panel Cascada BTC</h1>
+  <input type="password" id="login-input" placeholder="Contraseña" autocomplete="off">
+  <button onclick="intentarLogin()">Entrar</button>
+  <div id="login-error"></div>
+</div>
+
+<div id="dashboard-content">
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <span class="dot"></span>
+      <h1>Cascada BTC/EUR — Panel de control</h1>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <div>
+        <div class="status">● BOT ACTIVO</div>
+        <div class="updated" id="updated-at">Última actualización: —</div>
+      </div>
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()">🌙 Oscuro</button>
+    </div>
+  </header>
+
+  <div class="placeholder-note" id="placeholder-note">
+    ⚠ Datos de ejemplo. Cuando el bot registre operaciones reales, este panel se actualiza solo desde tu Google Sheet.
+  </div>
+
+  <div class="kpis">
+    <div class="kpi">
+      <div class="label">Capital total</div>
+      <div class="value" id="kpi-capital">€3.553</div>
+      <div class="sub up" id="kpi-capital-sub">+9.2% desde inicio</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Ganancia trading</div>
+      <div class="value up" id="kpi-ganancia">+€298</div>
+      <div class="sub" id="kpi-ganancia-sub">sin contar aportaciones</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Ciclos completados</div>
+      <div class="value" id="kpi-ciclos">27</div>
+      <div class="sub" id="kpi-ciclos-sub">desde el inicio</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Posición abierta</div>
+      <div class="value" id="kpi-posicion">4 / 10</div>
+      <div class="sub" id="kpi-posicion-sub">prom. €70.747 · venta €71.566</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Impuestos estimados (reserva)</div>
+      <div class="value" id="kpi-impuestos">€56,62</div>
+      <div class="sub" id="kpi-impuestos-sub">19% sobre €298 de ganancia neta</div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h2><span>Capital acumulado</span><span id="chart1-range">últimos 30 días</span></h2>
+      <canvas id="chartCapital"></canvas>
+    </div>
+    <div class="panel">
+      <h2><span>Ciclos por semana</span><span id="chart2-range">últimas 8 sem.</span></h2>
+      <canvas id="chartCiclos"></canvas>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h2><span>Distribución de ciclos</span><span>por nº de compras hasta vender</span></h2>
+      <canvas id="chartDistrib"></canvas>
+    </div>
+    <div class="panel">
+      <h2><span>Ganancia por ciclo</span><span>últimos 30 ciclos</span></h2>
+      <canvas id="chartGananciaCiclo"></canvas>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h2><span>Aportación vs. ganancia trading</span><span>mensual, hasta breakeven</span></h2>
+      <canvas id="chartBreakeven"></canvas>
+    </div>
+    <div class="panel">
+      <h2><span>Comisiones acumuladas</span><span>desde inicio</span></h2>
+      <canvas id="chartComisiones"></canvas>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2><span>Últimos movimientos</span><span>ver todo en Google Sheets →</span></h2>
+    <table id="tabla-movimientos">
+      <thead>
+        <tr><th>Fecha</th><th>Tipo</th><th>Precio</th><th>Importe</th><th>Promedio</th><th>Resultado</th></tr>
+      </thead>
+      <tbody id="tbody-movs"></tbody>
+    </table>
+  </div>
+
+  <footer>cascada dinámica btc/eur · bitvavo api · actualizado automáticamente por el bot</footer>
+</div>
+</div>
+
+<script>
+// ============================================================
+// LOGIN SIMPLE (protección básica, no bancaria)
+// ============================================================
+const PASSWORD_HASH = "f5bbdb7a2154491e416335295ba86604df38b9dc2aa67d5c1daf24ab85d83cf8";
+
+async function sha256(texto) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(texto));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+async function intentarLogin() {
+  const input = document.getElementById('login-input').value;
+  const hash = await sha256(input);
+  if (hash === PASSWORD_HASH) {
+    sessionStorage.setItem('bot-auth', 'ok');
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('dashboard-content').style.display = 'block';
+  } else {
+    document.getElementById('login-error').textContent = 'Contraseña incorrecta';
+  }
+}
+
+document.getElementById('login-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') intentarLogin();
+});
+
+if (sessionStorage.getItem('bot-auth') === 'ok') {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('dashboard-content').style.display = 'block';
+}
+
+// ============================================================
+// TEMA CLARO / OSCURO
+// ============================================================
+function toggleTheme() {
+  const html = document.documentElement;
+  const btn = document.getElementById('theme-toggle');
+  const nuevo = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', nuevo);
+  btn.textContent = nuevo === 'dark' ? '🌙 Oscuro' : '☀️ Claro';
+  localStorage.setItem('dashboard-theme', nuevo);
+}
+(function initTheme(){
+  const guardado = localStorage.getItem('dashboard-theme');
+  const html = document.documentElement;
+  const temaInicial = guardado || 'dark';
+  html.setAttribute('data-theme', temaInicial);
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('theme-toggle').textContent = temaInicial === 'dark' ? '🌙 Oscuro' : '☀️ Claro';
+  });
+})();
+
+// ============================================================
+// IMPUESTOS — cálculo progresivo IRPF ganancias del ahorro (España)
+// ============================================================
+function calcularImpuestos(gananciaNeta) {
+  const tramos = [
+    {hasta: 6000, tipo: 0.19},
+    {hasta: 50000, tipo: 0.21},
+    {hasta: 200000, tipo: 0.23},
+    {hasta: 300000, tipo: 0.27},
+    {hasta: Infinity, tipo: 0.28}
+  ];
+  let restante = gananciaNeta;
+  let anterior = 0;
+  let impuesto = 0;
+  for (const t of tramos) {
+    if (restante <= 0) break;
+    const tramoAmplitud = t.hasta - anterior;
+    const enEsteTramo = Math.min(restante, tramoAmplitud);
+    impuesto += enEsteTramo * t.tipo;
+    restante -= enEsteTramo;
+    anterior = t.hasta;
+  }
+  return impuesto;
+}
+
+function euro(valor, decimales=0) {
+  return '€' + Number(valor).toLocaleString('es-ES', {minimumFractionDigits:decimales, maximumFractionDigits:decimales});
+}
+
+// ============================================================
+// DATOS DE EJEMPLO (se usan solo si no hay datos reales aún)
+// ============================================================
+const gananciaNetaEjemplo = 298;
+const impuestoEjemplo = calcularImpuestos(gananciaNetaEjemplo);
+document.getElementById('kpi-impuestos').textContent = euro(impuestoEjemplo, 2);
+document.getElementById('kpi-impuestos-sub').textContent =
+  (impuestoEjemplo / gananciaNetaEjemplo * 100).toFixed(1) + '% efectivo sobre ' + euro(gananciaNetaEjemplo) + ' de ganancia';
+
+const capitalHist = [3255,3270,3290,3310,3305,3330,3360,3355,3380,3410,
+  3405,3430,3460,3455,3480,3510,3505,3520,3540,3535,3548,3553,3560,3555,3570,3580,3575,3590,3600,3610];
+const ciclosSemana = [3,5,4,7,6,4,5,6];
+const gananciaCiclosEjemplo = [7,2,9,4,12,3,15,1,8,5,11,6,4,9,3,14,2,7,5,10,3,6,9,2,8,4,11,3];
+const comisionesHist = [0.3,0.6,1.0,1.5,1.9,2.4,3.0,3.4,3.9,4.5,5.0,5.6,6.1,6.7,7.3,7.9,8.4,9.0,9.6,10.2];
+
+const movimientosEjemplo = [
+  {fecha:'2026-04-12 17:30', tipo:'BUY', precio:70700, importe:188.77, promedio:70747, resultado:null},
+  {fecha:'2026-04-12 15:00', tipo:'BUY', precio:71000, importe:179.63, promedio:71283, resultado:null},
+  {fecha:'2026-04-12 03:49', tipo:'BUY', precio:71400, importe:179.93, promedio:71525, resultado:null},
+  {fecha:'2026-04-10 09:12', tipo:'SELL', precio:72348, importe:356.00, promedio:71525, resultado:4.00},
+  {fecha:'2026-04-09 21:04', tipo:'BUY', precio:71400, importe:178.00, promedio:71525, resultado:null},
+  {fecha:'2026-04-09 18:22', tipo:'BUY', precio:71650, importe:178.00, promedio:71650, resultado:null},
+  {fecha:'2026-04-08 11:47', tipo:'SELL', precio:71817, importe:534.00, promedio:71000, resultado:5.30},
+];
+
+function pintarTabla(movs) {
+  const tbody = document.getElementById('tbody-movs');
+  tbody.innerHTML = '';
+  movs.forEach(m=>{
+    const tr = document.createElement('tr');
+    const tieneResultado = m.resultado !== null && m.resultado !== undefined && m.resultado !== '';
+    const resTxt = tieneResultado ? (parseFloat(m.resultado) >= 0 ? '+' + euro(parseFloat(m.resultado),2) : euro(parseFloat(m.resultado),2)) : '—';
+    tr.innerHTML = `
+      <td>${m.fecha}</td>
+      <td><span class="tag ${m.tipo==='BUY'?'buy':'sell'}">${m.tipo}</span></td>
+      <td>${euro(parseFloat(m.precio))}</td>
+      <td>${euro(parseFloat(m.importe),2)}</td>
+      <td>${m.promedio ? euro(parseFloat(m.promedio)) : '—'}</td>
+      <td class="${resTxt.startsWith('+')?'up':''}">${resTxt}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+pintarTabla(movimientosEjemplo);
+
+// ============================================================
+// GRÁFICAS (con datos de ejemplo; se pueden regenerar con reales)
+// ============================================================
+let chartCapital, chartCiclos, chartDistrib, chartGanancia, chartBreakeven, chartComisiones;
+
+function crearGraficas() {
+  chartCapital = new Chart(document.getElementById('chartCapital'), {
+    type:'line',
+    data:{ labels: capitalHist.map((_,i)=>i+1),
+      datasets:[{ data: capitalHist, borderColor:'#3ddc84', backgroundColor:'rgba(61,220,132,0.08)',
+        fill:true, tension:0.25, pointRadius:0, borderWidth:2 }] },
+    options:{ responsive:true, plugins:{legend:{display:false}},
+      scales:{ x:{display:false}, y:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10}}, grid:{color:'#1e2b23'}} } }
+  });
+
+  chartCiclos = new Chart(document.getElementById('chartCiclos'), {
+    type:'bar',
+    data:{ labels:['S1','S2','S3','S4','S5','S6','S7','S8'],
+      datasets:[{ data: ciclosSemana, backgroundColor:'#1f5c3f', hoverBackgroundColor:'#3ddc84', borderRadius:2 }] },
+    options:{ responsive:true, plugins:{legend:{display:false}},
+      scales:{ x:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10}},grid:{display:false}},
+        y:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10}},grid:{color:'#1e2b23'}} } }
+  });
+
+  chartDistrib = new Chart(document.getElementById('chartDistrib'), {
+    type:'bar',
+    data:{ labels:['1-2','3-4','5-8','9-13','14-20'],
+      datasets:[{ data:[6,8,3,4,1], backgroundColor:'#1f5c3f', hoverBackgroundColor:'#3ddc84', borderRadius:2 }] },
+    options:{ responsive:true, plugins:{legend:{display:false}},
+      scales:{ x:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10}},grid:{display:false}},
+        y:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10}},grid:{color:'#1e2b23'}} } }
+  });
+
+  chartGanancia = new Chart(document.getElementById('chartGananciaCiclo'), {
+    type:'bar',
+    data:{ labels: gananciaCiclosEjemplo.map((_,i)=>i+1),
+      datasets:[{ data: gananciaCiclosEjemplo, backgroundColor: gananciaCiclosEjemplo.map(v=>v>=8?'#3ddc84':'#1f5c3f'), borderRadius:2 }] },
+    options:{ responsive:true, plugins:{legend:{display:false}},
+      scales:{ x:{display:false}, y:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10},callback:v=>'€'+v}, grid:{color:'#1e2b23'}} } }
+  });
+
+  chartBreakeven = new Chart(document.getElementById('chartBreakeven'), {
+    type:'bar',
+    data:{ labels:['Mes 1','Mes 2','Mes 3','Mes 4','Mes 5','Mes 6','Mes 7','Mes 8'],
+      datasets:[
+        {label:'Aportación', data:[150,150,150,150,150,150,150,150], backgroundColor:'#e0a530'},
+        {label:'Ganancia trading', data:[15,28,45,68,95,130,175,230], backgroundColor:'#3ddc84'}
+      ] },
+    options:{ responsive:true, plugins:{legend:{labels:{color:'#7f9186',font:{family:'JetBrains Mono',size:10}}}},
+      scales:{ x:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10}},grid:{display:false}},
+        y:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10},callback:v=>'€'+v}, grid:{color:'#1e2b23'}} } }
+  });
+
+  chartComisiones = new Chart(document.getElementById('chartComisiones'), {
+    type:'line',
+    data:{ labels: comisionesHist.map((_,i)=>i+1),
+      datasets:[{ data: comisionesHist, borderColor:'#e0a530', backgroundColor:'rgba(224,165,48,0.08)',
+        fill:true, tension:0.2, pointRadius:0, borderWidth:2 }] },
+    options:{ responsive:true, plugins:{legend:{display:false}},
+      scales:{ x:{display:false}, y:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10},callback:v=>'€'+v}, grid:{color:'#1e2b23'}} } }
+  });
+}
+crearGraficas();
+
+// ============================================================
+// CONEXIÓN A DATOS REALES — Google Sheet publicado como CSV
+// ============================================================
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQd7L9Uy5LwBa3WAmMVXr3NCi-eZneqnIGKglKl2qNIG9xf7WTEH25EzM9BvMzZeSqiDuVfuXJQYVBw/pub?gid=0&single=true&output=csv";
+
+function parseCSV(text) {
+  const lines = text.trim().split("\n");
+  const headers = lines[0].split(",").map(h => h.trim());
+  return lines.slice(1).map(line => {
+    const vals = line.match(/(".*?"|[^,]+)(?=,|$)/g) || [];
+    const row = {};
+    headers.forEach((h, i) => {
+      row[h] = (vals[i] || "").replace(/^"|"$/g, "").trim();
+    });
+    return row;
+  });
+}
+
+async function cargarDatosReales() {
+  try {
+    const res = await fetch(SHEET_CSV_URL, {cache:"no-store"});
+    if (!res.ok) throw new Error("No se pudo leer el Sheet");
+    const text = await res.text();
+    const filas = parseCSV(text).filter(r => r.Fecha && r.Tipo);
+    return filas;
+  } catch (e) {
+    console.error("Error cargando datos reales:", e);
+    return null;
+  }
+}
+
+function actualizarDashboardConDatosReales(filas) {
+  document.getElementById('placeholder-note').style.display = 'none';
+
+  const ventas = filas.filter(r => r.Tipo === 'SELL');
+  const compras = filas.filter(r => r.Tipo === 'BUY');
+  const gananciaTotal = ventas.reduce((sum, v) => sum + (parseFloat(v.Resultado) || 0), 0);
+  const capitalInvertido = compras.reduce((sum, c) => sum + (parseFloat(c.Importe) || 0), 0);
+
+  document.getElementById('kpi-capital').textContent = euro(capitalInvertido);
+  document.getElementById('kpi-ganancia').textContent = (gananciaTotal >= 0 ? '+' : '') + euro(gananciaTotal,2);
+  document.getElementById('kpi-ciclos').textContent = ventas.length;
+  document.getElementById('kpi-posicion').textContent = compras.length + ' compras registradas';
+
+  const impuestoEstimado = calcularImpuestos(Math.max(gananciaTotal, 0));
+  document.getElementById('kpi-impuestos').textContent = euro(impuestoEstimado,2);
+  document.getElementById('kpi-impuestos-sub').textContent =
+    (gananciaTotal > 0 ? (impuestoEstimado / gananciaTotal * 100).toFixed(1) : '0') + '% efectivo sobre ' + euro(gananciaTotal,2);
+
+  pintarTabla(filas.slice(-15).reverse().map(m => ({
+    fecha: m.Fecha, tipo: m.Tipo, precio: m.Precio, importe: m.Importe,
+    promedio: m.Promedio, resultado: m.Resultado
+  })));
+
+  document.getElementById('updated-at').textContent =
+    'Última actualización: ' + new Date().toLocaleString('es-ES') + ' · ' + filas.length + ' operaciones reales';
+}
+
+document.getElementById('updated-at').textContent =
+  'Última actualización: ' + new Date().toLocaleString('es-ES') + ' (datos de ejemplo)';
+
+cargarDatosReales().then(filas => {
+  if (filas && filas.length > 0) {
+    actualizarDashboardConDatosReales(filas);
+  }
+});
+</script>
+</body>
+</html>
