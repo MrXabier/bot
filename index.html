@@ -434,14 +434,46 @@ crearGraficas();
 // ============================================================
 const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQd7L9Uy5LwBa3WAmMVXr3NCi-eZneqnIGKglKl2qNIG9xf7WTEH25EzM9BvMzZeSqiDuVfuXJQYVBw/pub?gid=0&single=true&output=csv";
 
+// Parser CSV como es debido: respeta comillas, comas dentro de campos
+// entrecomillados, y sobre todo, CAMPOS VACÍOS (el parser anterior con
+// una regex simple los saltaba y desalineaba todas las columnas
+// siguientes cuando un campo intermedio -p.ej. Comisión- estaba vacío).
+function parseCSVLine(line) {
+  const result = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else { inQuotes = false; }
+      } else {
+        cur += c;
+      }
+    } else {
+      if (c === '"') {
+        inQuotes = true;
+      } else if (c === ',') {
+        result.push(cur);
+        cur = '';
+      } else {
+        cur += c;
+      }
+    }
+  }
+  result.push(cur);
+  return result;
+}
+
 function parseCSV(text) {
   const lines = text.trim().split("\n");
-  const headers = lines[0].split(",").map(h => h.trim());
+  const headers = parseCSVLine(lines[0]).map(h => h.trim());
   return lines.slice(1).map(line => {
-    const vals = line.match(/(".*?"|[^,]+)(?=,|$)/g) || [];
+    const vals = parseCSVLine(line);
     const row = {};
     headers.forEach((h, i) => {
-      row[h] = (vals[i] || "").replace(/^"|"$/g, "").trim();
+      row[h] = (vals[i] || "").trim();
     });
     return row;
   });
@@ -466,19 +498,28 @@ function actualizarDashboardConDatosReales(filas) {
   const ventas = filas.filter(r => r.Tipo === 'SELL');
   const gananciaTotal = ventas.reduce((sum, v) => sum + (parseNum(v.Resultado) || 0), 0);
 
-  // Solo cuentan para "capital total" / "posición abierta" las compras
-  // registradas DESPUÉS de la última venta. Las compras de ciclos ya
-  // vendidos no deben seguir sumando: si no se filtran, el capital
-  // mostrado crece sin parar cada vez que se completa un ciclo, aunque
-  // ese dinero ya se cobró y se reinvirtió en la cascada nueva. Esto es
-  // lo que causaba los números erróneos (2 ventas, 218€) del otro día.
+  // Solo cuentan para "posición abierta" las compras registradas DESPUÉS
+  // de la última venta: las compras de ciclos ya vendidos no deben seguir
+  // sumando.
   const indiceUltimaVenta = filas.reduce((idx, r, i) => r.Tipo === 'SELL' ? i : idx, -1);
   const comprasActivas = filas.filter((r, i) => r.Tipo === 'BUY' && i > indiceUltimaVenta);
-
   const capitalInvertido = comprasActivas.reduce((sum, c) => sum + (parseNum(c.Importe) || 0), 0);
 
-  document.getElementById('kpi-capital').textContent = euro(capitalInvertido);
-  document.getElementById('kpi-capital-sub').textContent = comprasActivas.length + ' compras activas registradas';
+  // "Capital total" = valor real de la cuenta en Bitvavo (EUR + BTC al
+  // precio actual), que el bot escribe aparte, en las columnas
+  // EstadoFecha / PortfolioTotalEUR (no forman parte del histórico de
+  // operaciones). Si todavía no existen esas columnas, se usa como
+  // respaldo lo invertido en la posición activa.
+  const estadoRow = filas.find(r => r.PortfolioTotalEUR);
+  const portfolioTotal = estadoRow ? parseNum(estadoRow.PortfolioTotalEUR) : null;
+
+  if (portfolioTotal !== null) {
+    document.getElementById('kpi-capital').textContent = euro(portfolioTotal, 2);
+    document.getElementById('kpi-capital-sub').textContent = 'actualizado ' + estadoRow.EstadoFecha;
+  } else {
+    document.getElementById('kpi-capital').textContent = euro(capitalInvertido);
+    document.getElementById('kpi-capital-sub').textContent = comprasActivas.length + ' compras activas registradas';
+  }
 
   document.getElementById('kpi-ganancia').textContent = (gananciaTotal >= 0 ? '+' : '') + euro(gananciaTotal,2);
   document.getElementById('kpi-ganancia-sub').textContent = 'de ' + ventas.length + ' ventas completadas';
