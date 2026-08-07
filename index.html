@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cascada BTC — Panel</title>
+<title>Panel personal</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   :root{
@@ -129,7 +129,7 @@
 <body>
 
 <div id="login-screen">
-  <h1 style="font-family:var(--mono);color:var(--ink);font-size:16px;">🔒 Panel Cascada BTC</h1>
+  <h1 style="font-family:var(--mono);color:var(--ink);font-size:16px;">🔒 Acceso privado</h1>
   <input type="password" id="login-input" placeholder="Contraseña" autocomplete="off">
   <button onclick="intentarLogin()">Entrar</button>
   <div id="login-error"></div>
@@ -464,12 +464,21 @@ function actualizarDashboardConDatosReales(filas) {
   document.getElementById('placeholder-note').style.display = 'none';
 
   const ventas = filas.filter(r => r.Tipo === 'SELL');
-  const compras = filas.filter(r => r.Tipo === 'BUY');
   const gananciaTotal = ventas.reduce((sum, v) => sum + (parseNum(v.Resultado) || 0), 0);
-  const capitalInvertido = compras.reduce((sum, c) => sum + (parseNum(c.Importe) || 0), 0);
+
+  // Solo cuentan para "capital total" / "posición abierta" las compras
+  // registradas DESPUÉS de la última venta. Las compras de ciclos ya
+  // vendidos no deben seguir sumando: si no se filtran, el capital
+  // mostrado crece sin parar cada vez que se completa un ciclo, aunque
+  // ese dinero ya se cobró y se reinvirtió en la cascada nueva. Esto es
+  // lo que causaba los números erróneos (2 ventas, 218€) del otro día.
+  const indiceUltimaVenta = filas.reduce((idx, r, i) => r.Tipo === 'SELL' ? i : idx, -1);
+  const comprasActivas = filas.filter((r, i) => r.Tipo === 'BUY' && i > indiceUltimaVenta);
+
+  const capitalInvertido = comprasActivas.reduce((sum, c) => sum + (parseNum(c.Importe) || 0), 0);
 
   document.getElementById('kpi-capital').textContent = euro(capitalInvertido);
-  document.getElementById('kpi-capital-sub').textContent = compras.length + ' compras activas registradas';
+  document.getElementById('kpi-capital-sub').textContent = comprasActivas.length + ' compras activas registradas';
 
   document.getElementById('kpi-ganancia').textContent = (gananciaTotal >= 0 ? '+' : '') + euro(gananciaTotal,2);
   document.getElementById('kpi-ganancia-sub').textContent = 'de ' + ventas.length + ' ventas completadas';
@@ -477,8 +486,8 @@ function actualizarDashboardConDatosReales(filas) {
   document.getElementById('kpi-ciclos').textContent = ventas.length;
   document.getElementById('kpi-ciclos-sub').textContent = 'desde el inicio';
 
-  document.getElementById('kpi-posicion').textContent = compras.length + ' compras registradas';
-  const ultimaCompra = compras[compras.length - 1];
+  document.getElementById('kpi-posicion').textContent = comprasActivas.length + ' compras registradas';
+  const ultimaCompra = comprasActivas[comprasActivas.length - 1];
   document.getElementById('kpi-posicion-sub').textContent = ultimaCompra ?
     ('última: ' + euro(parseNum(ultimaCompra.Precio))) : '—';
 
