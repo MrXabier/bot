@@ -212,7 +212,7 @@
       <canvas id="chartBreakeven"></canvas>
     </div>
     <div class="panel">
-      <h2><span>Comisiones acumuladas</span><span>desde inicio</span></h2>
+      <h2><span>Comisiones acumuladas</span><span id="chart-comisiones-range">desde inicio</span></h2>
       <canvas id="chartComisiones"></canvas>
     </div>
   </div>
@@ -366,7 +366,7 @@ function pintarTabla(movs) {
 pintarTabla(movimientosEjemplo);
 
 // ============================================================
-// GRÁFICAS (con datos de ejemplo; se pueden regenerar con reales)
+// GRÁFICAS (con datos de ejemplo; se sustituyen por reales si hay)
 // ============================================================
 let chartCapital, chartCiclos, chartDistrib, chartGanancia, chartBreakeven, chartComisiones;
 
@@ -424,7 +424,7 @@ function crearGraficas() {
       datasets:[{ data: comisionesHist, borderColor:'#e0a530', backgroundColor:'rgba(224,165,48,0.08)',
         fill:true, tension:0.2, pointRadius:0, borderWidth:2 }] },
     options:{ responsive:true, plugins:{legend:{display:false}},
-      scales:{ x:{display:false}, y:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10},callback:v=>'€'+v}, grid:{color:'#1e2b23'}} } }
+      scales:{ x:{display:false}, y:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10},callback:v=>'€'+v.toFixed ? v.toFixed(2) : v}, grid:{color:'#1e2b23'}} } }
   });
 }
 crearGraficas();
@@ -434,10 +434,9 @@ crearGraficas();
 // ============================================================
 const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQd7L9Uy5LwBa3WAmMVXr3NCi-eZneqnIGKglKl2qNIG9xf7WTEH25EzM9BvMzZeSqiDuVfuXJQYVBw/pub?gid=0&single=true&output=csv";
 
-// Parser CSV como es debido: respeta comillas, comas dentro de campos
-// entrecomillados, y sobre todo, CAMPOS VACÍOS (el parser anterior con
-// una regex simple los saltaba y desalineaba todas las columnas
-// siguientes cuando un campo intermedio -p.ej. Comisión- estaba vacío).
+// Parser CSV robusto: respeta comillas, comas dentro de campos entrecomillados
+// y, sobre todo, campos vacíos intermedios (el parser anterior con una regex
+// simple los saltaba y desalineaba todas las columnas siguientes).
 function parseCSVLine(line) {
   const result = [];
   let cur = '';
@@ -506,7 +505,7 @@ function actualizarDashboardConDatosReales(filas) {
   const capitalInvertido = comprasActivas.reduce((sum, c) => sum + (parseNum(c.Importe) || 0), 0);
 
   // "Capital total" = valor real de la cuenta en Bitvavo (EUR + BTC al
-  // precio actual), que el bot escribe aparte, en las columnas
+  // precio actual), que el bot escribe aparte en las columnas
   // EstadoFecha / PortfolioTotalEUR (no forman parte del histórico de
   // operaciones). Si todavía no existen esas columnas, se usa como
   // respaldo lo invertido en la posición activa.
@@ -522,7 +521,7 @@ function actualizarDashboardConDatosReales(filas) {
   }
 
   document.getElementById('kpi-ganancia').textContent = (gananciaTotal >= 0 ? '+' : '') + euro(gananciaTotal,2);
-  document.getElementById('kpi-ganancia-sub').textContent = 'de ' + ventas.length + ' ventas completadas';
+  document.getElementById('kpi-ganancia-sub').textContent = 'neto de comisiones · ' + ventas.length + ' ventas completadas';
 
   document.getElementById('kpi-ciclos').textContent = ventas.length;
   document.getElementById('kpi-ciclos-sub').textContent = 'desde el inicio';
@@ -536,6 +535,24 @@ function actualizarDashboardConDatosReales(filas) {
   document.getElementById('kpi-impuestos').textContent = euro(impuestoEstimado,2);
   document.getElementById('kpi-impuestos-sub').textContent =
     (gananciaTotal > 0 ? (impuestoEstimado / gananciaTotal * 100).toFixed(1) : '0') + '% efectivo sobre ' + euro(gananciaTotal,2);
+
+  // Comisiones acumuladas reales (todas las filas con comisión registrada,
+  // en orden cronológico tal como están en el Sheet).
+  const comisionesReales = [];
+  let acumComision = 0;
+  filas.forEach(r => {
+    if (r.Comision) {
+      acumComision += parseNum(r.Comision);
+      comisionesReales.push(acumComision);
+    }
+  });
+  if (comisionesReales.length > 0 && chartComisiones) {
+    chartComisiones.data.labels = comisionesReales.map((_, i) => i + 1);
+    chartComisiones.data.datasets[0].data = comisionesReales;
+    chartComisiones.update();
+    document.getElementById('chart-comisiones-range').textContent =
+      'total ' + euro(acumComision, 2);
+  }
 
   pintarTabla(filas.slice(-15).reverse().map(m => ({
     fecha: m.Fecha, tipo: m.Tipo, precio: m.Precio, importe: m.Importe,
