@@ -273,6 +273,7 @@ function toggleTheme() {
   html.setAttribute('data-theme', nuevo);
   btn.textContent = nuevo === 'dark' ? '🌙 Oscuro' : '☀️ Claro';
   localStorage.setItem('dashboard-theme', nuevo);
+  actualizarColoresGraficas();
 }
 (function initTheme(){
   const guardado = localStorage.getItem('dashboard-theme');
@@ -370,14 +371,39 @@ pintarTabla(movimientosEjemplo);
 // ============================================================
 let chartCapital, chartCiclos, chartDistrib, chartGanancia, chartBreakeven, chartComisiones;
 
+// Colores de ejes/rejilla de las gráficas según el tema activo (mismos valores que --ink-dim y --line en el CSS)
+function coloresGrafico() {
+  const esClaro = document.documentElement.getAttribute('data-theme') === 'light';
+  return esClaro ? { inkDim:'#5c6e63', line:'#dde5e0' } : { inkDim:'#7f9186', line:'#1e2b23' };
+}
+
+function actualizarColoresGraficas() {
+  const c = coloresGrafico();
+  [chartCapital, chartCiclos, chartDistrib, chartGanancia, chartBreakeven, chartComisiones].forEach(chart => {
+    if (!chart) return;
+    const escalas = chart.options.scales || {};
+    ['x','y'].forEach(eje => {
+      const escala = escalas[eje];
+      if (!escala) return;
+      if (escala.ticks) escala.ticks.color = c.inkDim;
+      if (escala.grid && escala.grid.color) escala.grid.color = c.line;
+    });
+    const leyenda = chart.options.plugins && chart.options.plugins.legend;
+    if (leyenda && leyenda.labels) leyenda.labels.color = c.inkDim;
+    chart.update();
+  });
+}
+
 function crearGraficas() {
+  const c = coloresGrafico();
+
   chartCapital = new Chart(document.getElementById('chartCapital'), {
     type:'line',
     data:{ labels: capitalHist.map((_,i)=>i+1),
       datasets:[{ data: capitalHist, borderColor:'#3ddc84', backgroundColor:'rgba(61,220,132,0.08)',
         fill:true, tension:0.25, pointRadius:0, borderWidth:2 }] },
     options:{ responsive:true, plugins:{legend:{display:false}},
-      scales:{ x:{display:false}, y:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10}}, grid:{color:'#1e2b23'}} } }
+      scales:{ x:{display:false}, y:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10}}, grid:{color:c.line}} } }
   });
 
   chartCiclos = new Chart(document.getElementById('chartCiclos'), {
@@ -385,8 +411,8 @@ function crearGraficas() {
     data:{ labels:['S1','S2','S3','S4','S5','S6','S7','S8'],
       datasets:[{ data: ciclosSemana, backgroundColor:'#1f5c3f', hoverBackgroundColor:'#3ddc84', borderRadius:2 }] },
     options:{ responsive:true, plugins:{legend:{display:false}},
-      scales:{ x:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10}},grid:{display:false}},
-        y:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10}},grid:{color:'#1e2b23'}} } }
+      scales:{ x:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10}},grid:{display:false}},
+        y:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10}},grid:{color:c.line}} } }
   });
 
   chartDistrib = new Chart(document.getElementById('chartDistrib'), {
@@ -394,8 +420,8 @@ function crearGraficas() {
     data:{ labels:['1-2','3-4','5-8','9-13','14-20'],
       datasets:[{ data:[6,8,3,4,1], backgroundColor:'#1f5c3f', hoverBackgroundColor:'#3ddc84', borderRadius:2 }] },
     options:{ responsive:true, plugins:{legend:{display:false}},
-      scales:{ x:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10}},grid:{display:false}},
-        y:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10}},grid:{color:'#1e2b23'}} } }
+      scales:{ x:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10}},grid:{display:false}},
+        y:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10}},grid:{color:c.line}} } }
   });
 
   chartGanancia = new Chart(document.getElementById('chartGananciaCiclo'), {
@@ -403,7 +429,7 @@ function crearGraficas() {
     data:{ labels: gananciaCiclosEjemplo.map((_,i)=>i+1),
       datasets:[{ data: gananciaCiclosEjemplo, backgroundColor: gananciaCiclosEjemplo.map(v=>v>=8?'#3ddc84':'#1f5c3f'), borderRadius:2 }] },
     options:{ responsive:true, plugins:{legend:{display:false}},
-      scales:{ x:{display:false}, y:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10},callback:v=>'€'+v}, grid:{color:'#1e2b23'}} } }
+      scales:{ x:{display:false}, y:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10},callback:v=>'€'+v}, grid:{color:c.line}} } }
   });
 
   chartBreakeven = new Chart(document.getElementById('chartBreakeven'), {
@@ -413,9 +439,9 @@ function crearGraficas() {
         {label:'Aportación', data:[150,150,150,150,150,150,150,150], backgroundColor:'#e0a530'},
         {label:'Ganancia trading', data:[15,28,45,68,95,130,175,230], backgroundColor:'#3ddc84'}
       ] },
-    options:{ responsive:true, plugins:{legend:{labels:{color:'#7f9186',font:{family:'JetBrains Mono',size:10}}}},
-      scales:{ x:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10}},grid:{display:false}},
-        y:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10},callback:v=>'€'+v}, grid:{color:'#1e2b23'}} } }
+    options:{ responsive:true, plugins:{legend:{labels:{color:c.inkDim,font:{family:'JetBrains Mono',size:10}}}},
+      scales:{ x:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10}},grid:{display:false}},
+        y:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10},callback:v=>'€'+v}, grid:{color:c.line}} } }
   });
 
   chartComisiones = new Chart(document.getElementById('chartComisiones'), {
@@ -424,7 +450,7 @@ function crearGraficas() {
       datasets:[{ data: comisionesHist, borderColor:'#e0a530', backgroundColor:'rgba(224,165,48,0.08)',
         fill:true, tension:0.2, pointRadius:0, borderWidth:2 }] },
     options:{ responsive:true, plugins:{legend:{display:false}},
-      scales:{ x:{display:false}, y:{ticks:{color:'#7f9186',font:{family:'JetBrains Mono',size:10},callback:v=>'€'+v.toFixed ? v.toFixed(2) : v}, grid:{color:'#1e2b23'}} } }
+      scales:{ x:{display:false}, y:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10},callback:v=>'€'+(typeof v==='number'?v.toFixed(2):v)}, grid:{color:c.line}} } }
   });
 }
 crearGraficas();
@@ -509,7 +535,8 @@ function actualizarDashboardConDatosReales(filas) {
   // EstadoFecha / PortfolioTotalEUR (no forman parte del histórico de
   // operaciones). Si todavía no existen esas columnas, se usa como
   // respaldo lo invertido en la posición activa.
-  const estadoRow = filas.find(r => r.PortfolioTotalEUR);
+  const filasConPortfolio = filas.filter(r => r.PortfolioTotalEUR);
+  const estadoRow = filasConPortfolio.length > 0 ? filasConPortfolio[filasConPortfolio.length - 1] : null;
   const portfolioTotal = estadoRow ? parseNum(estadoRow.PortfolioTotalEUR) : null;
 
   if (portfolioTotal !== null) {
