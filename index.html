@@ -521,7 +521,12 @@ function actualizarDashboardConDatosReales(filas) {
   document.getElementById('placeholder-note').style.display = 'none';
 
   const ventas = filas.filter(r => r.Tipo === 'SELL');
-  const gananciaTotal = ventas.reduce((sum, v) => sum + (parseNum(v.Resultado) || 0), 0);
+  const gananciaBruta = ventas.reduce((sum, v) => sum + (parseNum(v.Resultado) || 0), 0);
+  // "Resultado" (por fila) no resta la comisión de esa operación -- para que
+  // "neto de comisiones" sea cierto de verdad, restamos aquí todas las
+  // comisiones pagadas (compras y ventas) en todo el histórico.
+  const comisionesTotal = filas.reduce((sum, r) => sum + (parseNum(r.Comision) || 0), 0);
+  const gananciaTotal = gananciaBruta - comisionesTotal;
 
   // Solo cuentan para "posición abierta" las compras registradas DESPUÉS
   // de la última venta: las compras de ciclos ya vendidos no deben seguir
