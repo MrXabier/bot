@@ -586,6 +586,62 @@ function actualizarDashboardConDatosReales(filas) {
       'total ' + euro(acumComision, 2);
   }
 
+  // Ciclos por semana: agrupa las ventas reales por semana (lunes de inicio).
+  function claveSemana(fecha) {
+    const d = new Date(String(fecha).replace(' ', 'T'));
+    const diaSemana = (d.getDay() + 6) % 7; // lunes=0 ... domingo=6
+    const lunes = new Date(d);
+    lunes.setDate(d.getDate() - diaSemana);
+    lunes.setHours(0, 0, 0, 0);
+    return lunes.toISOString().slice(0, 10);
+  }
+  if (ventas.length > 0 && chartCiclos) {
+    const semanaMap = new Map();
+    ventas.forEach(v => {
+      const key = claveSemana(v.Fecha);
+      semanaMap.set(key, (semanaMap.get(key) || 0) + 1);
+    });
+    const ultimasSemanas = Array.from(semanaMap.entries()).slice(-8);
+    chartCiclos.data.labels = ultimasSemanas.map(([k]) =>
+      new Date(k + 'T00:00:00').toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit'}));
+    chartCiclos.data.datasets[0].data = ultimasSemanas.map(([, v]) => v);
+    chartCiclos.update();
+    document.getElementById('chart2-range').textContent = 'últimas ' + ultimasSemanas.length + ' sem.';
+  }
+
+  // Distribución de ciclos: nº de compras acumuladas hasta cada venta.
+  if (ventas.length > 0 && chartDistrib) {
+    let comprasEnCiclo = 0;
+    const ciclosCompras = [];
+    filas.forEach(r => {
+      if (r.Tipo === 'BUY') comprasEnCiclo++;
+      else if (r.Tipo === 'SELL') { ciclosCompras.push(comprasEnCiclo); comprasEnCiclo = 0; }
+    });
+    const buckets = {'1-2':0, '3-4':0, '5-8':0, '9-13':0, '14-20':0, '21+':0};
+    function bucketDe(n) {
+      if (n <= 2) return '1-2';
+      if (n <= 4) return '3-4';
+      if (n <= 8) return '5-8';
+      if (n <= 13) return '9-13';
+      if (n <= 20) return '14-20';
+      return '21+';
+    }
+    ciclosCompras.forEach(n => { buckets[bucketDe(n)]++; });
+    const etiquetasDistrib = Object.keys(buckets).filter(k => k !== '21+' || buckets[k] > 0);
+    chartDistrib.data.labels = etiquetasDistrib;
+    chartDistrib.data.datasets[0].data = etiquetasDistrib.map(k => buckets[k]);
+    chartDistrib.update();
+  }
+
+  // Ganancia por ciclo: resultado real de cada venta (últimos 30 ciclos).
+  if (ventas.length > 0 && chartGanancia) {
+    const gananciaCiclos = ventas.map(v => parseNum(v.Resultado)).slice(-30);
+    chartGanancia.data.labels = gananciaCiclos.map((_, i) => i + 1);
+    chartGanancia.data.datasets[0].data = gananciaCiclos;
+    chartGanancia.data.datasets[0].backgroundColor = gananciaCiclos.map(v => v >= 0 ? '#3ddc84' : '#e05a4e');
+    chartGanancia.update();
+  }
+
   pintarTabla(filas.slice(-15).reverse().map(m => ({
     fecha: m.Fecha, tipo: m.Tipo, precio: m.Precio, importe: m.Importe,
     promedio: m.Promedio, resultado: m.Resultado
