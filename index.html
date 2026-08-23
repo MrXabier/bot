@@ -173,9 +173,9 @@
       <div class="sub" id="kpi-ciclos-sub">desde el inicio</div>
     </div>
     <div class="kpi">
-      <div class="label">Posición abierta</div>
-      <div class="value" id="kpi-posicion">4 / 10</div>
-      <div class="sub" id="kpi-posicion-sub">prom. €70.747 · venta €71.566</div>
+      <div class="label">Invertido (posición abierta)</div>
+      <div class="value" id="kpi-posicion">€712,99</div>
+      <div class="sub" id="kpi-posicion-sub">4 compras · prom. €70.747</div>
     </div>
     <div class="kpi">
       <div class="label">Impuestos estimados (reserva)</div>
@@ -522,11 +522,6 @@ function actualizarDashboardConDatosReales(filas) {
 
   const ventas = filas.filter(r => r.Tipo === 'SELL');
   const gananciaBruta = ventas.reduce((sum, v) => sum + (parseNum(v.Resultado) || 0), 0);
-  // "Resultado" (por fila) no resta la comisión de esa operación -- para que
-  // "neto de comisiones" sea cierto de verdad, restamos aquí todas las
-  // comisiones pagadas (compras y ventas) en todo el histórico.
-  const comisionesTotal = filas.reduce((sum, r) => sum + (parseNum(r.Comision) || 0), 0);
-  const gananciaTotal = gananciaBruta - comisionesTotal;
 
   // Solo cuentan para "posición abierta" las compras registradas DESPUÉS
   // de la última venta: las compras de ciclos ya vendidos no deben seguir
@@ -534,6 +529,16 @@ function actualizarDashboardConDatosReales(filas) {
   const indiceUltimaVenta = filas.reduce((idx, r, i) => r.Tipo === 'SELL' ? i : idx, -1);
   const comprasActivas = filas.filter((r, i) => r.Tipo === 'BUY' && i > indiceUltimaVenta);
   const capitalInvertido = comprasActivas.reduce((sum, c) => sum + (parseNum(c.Importe) || 0), 0);
+
+  // "Resultado" (por fila) no resta la comisión de esa operación -- para que
+  // "neto de comisiones" sea cierto, restamos las comisiones ya REALIZADAS
+  // (todo el histórico excepto las compras de la posición todavía abierta:
+  // esas aún no han generado ni ganancia ni pérdida, así que su comisión no
+  // debe descontarse de la ganancia ya cerrada).
+  const comisionesRealizadas = filas
+    .filter(r => !comprasActivas.includes(r))
+    .reduce((sum, r) => sum + (parseNum(r.Comision) || 0), 0);
+  const gananciaTotal = gananciaBruta - comisionesRealizadas;
 
   // "Capital total" = valor real de la cuenta en Bitvavo (EUR + BTC al
   // precio actual), que el bot escribe aparte en las columnas
@@ -553,15 +558,17 @@ function actualizarDashboardConDatosReales(filas) {
   }
 
   document.getElementById('kpi-ganancia').textContent = (gananciaTotal >= 0 ? '+' : '') + euro(gananciaTotal,2);
-  document.getElementById('kpi-ganancia-sub').textContent = 'neto de comisiones · ' + ventas.length + ' ventas completadas';
+  const pctSobreInvertido = capitalInvertido > 0 ? (gananciaTotal / capitalInvertido * 100) : null;
+  document.getElementById('kpi-ganancia-sub').textContent = 'neto de comisiones · ' + ventas.length + ' ventas completadas' +
+    (pctSobreInvertido !== null ? ' · ' + (pctSobreInvertido >= 0 ? '+' : '') + pctSobreInvertido.toFixed(2) + '% s/invertido' : '');
 
   document.getElementById('kpi-ciclos').textContent = ventas.length;
   document.getElementById('kpi-ciclos-sub').textContent = 'desde el inicio';
 
-  document.getElementById('kpi-posicion').textContent = comprasActivas.length + ' compras registradas';
+  document.getElementById('kpi-posicion').textContent = capitalInvertido > 0 ? euro(capitalInvertido, 2) : '—';
   const ultimaCompra = comprasActivas[comprasActivas.length - 1];
   document.getElementById('kpi-posicion-sub').textContent = ultimaCompra ?
-    ('última: ' + euro(parseNum(ultimaCompra.Precio))) : '—';
+    (comprasActivas.length + ' compras · prom. ' + euro(parseNum(ultimaCompra.Promedio))) : 'sin posición abierta';
 
   const impuestoEstimado = calcularImpuestos(Math.max(gananciaTotal, 0));
   document.getElementById('kpi-impuestos').textContent = euro(impuestoEstimado,2);
