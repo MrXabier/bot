@@ -459,6 +459,8 @@ crearGraficas();
 // CONEXIÓN A DATOS REALES — Google Sheet publicado como CSV
 // ============================================================
 const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQd7L9Uy5LwBa3WAmMVXr3NCi-eZneqnIGKglKl2qNIG9xf7WTEH25EzM9BvMzZeSqiDuVfuXJQYVBw/pub?gid=0&single=true&output=csv";
+const SHEET_HISTORIAL_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQd7L9Uy5LwBa3WAmMVXr3NCi-eZneqnIGKglKl2qNIG9xf7WTEH25EzM9BvMzZeSqiDuVfuXJQYVBw/pub?gid=89090495&single=true&output=csv";
+const SHEET_APORTACIONES_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQd7L9Uy5LwBa3WAmMVXr3NCi-eZneqnIGKglKl2qNIG9xf7WTEH25EzM9BvMzZeSqiDuVfuXJQYVBw/pub?gid=1515562456&single=true&output=csv";
 
 // Parser CSV robusto: respeta comillas, comas dentro de campos entrecomillados
 // y, sobre todo, campos vacíos intermedios (el parser anterior con una regex
@@ -517,7 +519,31 @@ async function cargarDatosReales() {
   }
 }
 
-function actualizarDashboardConDatosReales(filas) {
+async function cargarHistorialCapital() {
+  try {
+    const res = await fetch(SHEET_HISTORIAL_CSV_URL, {cache:"no-store"});
+    if (!res.ok) throw new Error("No se pudo leer Historial");
+    const text = await res.text();
+    return parseCSV(text).filter(r => r.Fecha && r.CapitalTotalEUR);
+  } catch (e) {
+    console.error("Error cargando historial de capital:", e);
+    return null;
+  }
+}
+
+async function cargarAportaciones() {
+  try {
+    const res = await fetch(SHEET_APORTACIONES_CSV_URL, {cache:"no-store"});
+    if (!res.ok) throw new Error("No se pudo leer Aportaciones");
+    const text = await res.text();
+    return parseCSV(text).filter(r => r.Fecha && r.Importe);
+  } catch (e) {
+    console.error("Error cargando aportaciones:", e);
+    return null;
+  }
+}
+
+function actualizarDashboardConDatosReales(filas, historial, aportaciones) {
   document.getElementById('placeholder-note').style.display = 'none';
 
   const ventas = filas.filter(r => r.Tipo === 'SELL');
@@ -557,23 +583,52 @@ function actualizarDashboardConDatosReales(filas) {
     document.getElementById('kpi-capital-sub').textContent = comprasActivas.length + ' compras activas registradas';
   }
 
-  document.getElementById('kpi-ganancia').textContent = (gananciaTotal >= 0 ? '+' : '') + euro(gananciaTotal,2);
-  const pctSobreInvertido = capitalInvertido > 0 ? (gananciaTotal / capitalInvertido * 100) : null;
-  document.getElementById('kpi-ganancia-sub').textContent = 'neto de comisiones · ' + ventas.length + ' ventas completadas' +
-    (pctSobreInvertido !== null ? ' · ' + (pctSobreInvertido >= 0 ? '+' : '') + pctSobreInvertido.toFixed(2) + '% s/invertido' : '');
+  // "Ganancia" real: capital total en cuenta menos todo lo que has ido
+  // metiendo (aportaciones reales detectadas por el bot desde el historial
+  // de depósitos de Bitvavo). Es el número que de verdad coincide con "lo
+  // invertido vs. lo ganado" -- mucho más fiable que intentar netear
+  // comisiones ciclo a ciclo, que depende de cómo se calcule Resultado.
+  const capitalActual = portfolioTotal !== null ? portfolioTotal : capitalInvertido;
+  let aportacionTotal = 0;
+  if (aportaciones && aportaciones.length > 0) {
+    aportacionTotal = aportaciones.reduce((sum, a) => sum + (parseNum(a.Importe) || 0), 0);
+  }
+  const gananciaReal = aportacionTotal > 0 ? (capitalActual - aportacionTotal) : null;
+
+  if (gananciaReal !== null) {
+    document.getElementById('kpi-ganancia').textContent = (gananciaReal >= 0 ? '+' : '') + euro(gananciaReal, 2);
+    const pctSobreAportado = gananciaReal / aportacionTotal * 100;
+    document.getElementById('kpi-ganancia-sub').textContent =
+      euro(capitalActual, 2) + ' capital − ' + euro(aportacionTotal, 2) + ' aportado · ' +
+      (pctSobreAportado >= 0 ? '+' : '') + pctSobreAportado.toFixed(2) + '%';
+  } else {
+    document.getElementById('kpi-ganancia').textContent = (gananciaTotal >= 0 ? '+' : '') + euro(gananciaTotal, 2);
+    document.getElementById('kpi-ganancia-sub').textContent =
+      'neto de comisiones · ' + ventas.length + ' ventas (sin datos de aportaciones aún)';
+  }
 
   document.getElementById('kpi-ciclos').textContent = ventas.length;
   document.getElementById('kpi-ciclos-sub').textContent = 'desde el inicio';
 
   document.getElementById('kpi-posicion').textContent = capitalInvertido > 0 ? euro(capitalInvertido, 2) : '—';
-  const ultimaCompra = comprasActivas[comprasActivas.length - 1];
-  document.getElementById('kpi-posicion-sub').textContent = ultimaCompra ?
-    (comprasActivas.length + ' compras · prom. ' + euro(parseNum(ultimaCompra.Promedio))) : 'sin posición abierta';
+  // La columna "Promedio" del Sheet solo la rellena el bot en las filas de
+  // VENTA -- en las compras siempre está vacía. Para la posición activa
+  // (que aún no se ha vendido) calculamos aquí la media ponderada real:
+  // € totales invertidos / BTC totales comprados en esas compras.
+  const btcActivo = comprasActivas.reduce((sum, c) => {
+    const precio = parseNum(c.Precio);
+    const importe = parseNum(c.Importe);
+    return sum + (precio > 0 ? importe / precio : 0);
+  }, 0);
+  const promedioActivo = btcActivo > 0 ? capitalInvertido / btcActivo : null;
+  document.getElementById('kpi-posicion-sub').textContent = comprasActivas.length > 0 ?
+    (comprasActivas.length + ' compras · prom. ' + (promedioActivo !== null ? euro(promedioActivo) : '—')) : 'sin posición abierta';
 
-  const impuestoEstimado = calcularImpuestos(Math.max(gananciaTotal, 0));
+  const gananciaParaImpuestos = gananciaReal !== null ? gananciaReal : gananciaTotal;
+  const impuestoEstimado = calcularImpuestos(Math.max(gananciaParaImpuestos, 0));
   document.getElementById('kpi-impuestos').textContent = euro(impuestoEstimado,2);
   document.getElementById('kpi-impuestos-sub').textContent =
-    (gananciaTotal > 0 ? (impuestoEstimado / gananciaTotal * 100).toFixed(1) : '0') + '% efectivo sobre ' + euro(gananciaTotal,2);
+    (gananciaParaImpuestos > 0 ? (impuestoEstimado / gananciaParaImpuestos * 100).toFixed(1) : '0') + '% efectivo sobre ' + euro(gananciaParaImpuestos,2);
 
   // Comisiones acumuladas reales (todas las filas con comisión registrada,
   // en orden cronológico tal como están en el Sheet).
@@ -649,6 +704,52 @@ function actualizarDashboardConDatosReales(filas) {
     chartGanancia.update();
   }
 
+  // Capital acumulado: histórico real guardado por el Apps Script cada 30 min
+  // en la pestaña "Historial" (Fecha, CapitalTotalEUR).
+  if (historial && historial.length > 0 && chartCapital) {
+    chartCapital.data.labels = historial.map(h => h.Fecha);
+    chartCapital.data.datasets[0].data = historial.map(h => parseNum(h.CapitalTotalEUR));
+    chartCapital.update();
+    document.getElementById('chart1-range').textContent = historial.length + ' puntos registrados';
+  }
+
+  // Aportación vs. ganancia trading, por mes: aportación acumulada (real,
+  // desde el historial de depósitos de Bitvavo) frente a la ganancia
+  // acumulada en ese mismo mes (capital real de ese mes menos lo aportado
+  // hasta entonces). La ganancia solo puede calcularse desde que existe
+  // "Historial" -- los meses anteriores solo muestran la barra de aportación.
+  if (aportaciones && aportaciones.length > 0 && chartBreakeven) {
+    function claveMes(fechaStr) {
+      const d = new Date(String(fechaStr).replace(' ', 'T'));
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    }
+    const aportPorMes = new Map();
+    aportaciones.forEach(a => {
+      const key = claveMes(a.Fecha);
+      aportPorMes.set(key, (aportPorMes.get(key) || 0) + (parseNum(a.Importe) || 0));
+    });
+    const capitalPorMes = new Map();
+    if (historial && historial.length > 0) {
+      historial.forEach(h => {
+        capitalPorMes.set(claveMes(h.Fecha), parseNum(h.CapitalTotalEUR));
+      });
+    }
+    const mesesOrdenados = Array.from(aportPorMes.keys()).sort();
+    let aportAcumulada = 0;
+    const datosAportacion = [];
+    const datosGanancia = [];
+    mesesOrdenados.forEach(mes => {
+      aportAcumulada += aportPorMes.get(mes);
+      datosAportacion.push(aportAcumulada);
+      const capitalMes = capitalPorMes.get(mes);
+      datosGanancia.push(capitalMes !== undefined ? (capitalMes - aportAcumulada) : null);
+    });
+    chartBreakeven.data.labels = mesesOrdenados;
+    chartBreakeven.data.datasets[0].data = datosAportacion;
+    chartBreakeven.data.datasets[1].data = datosGanancia;
+    chartBreakeven.update();
+  }
+
   pintarTabla(filas.slice(-15).reverse().map(m => ({
     fecha: m.Fecha, tipo: m.Tipo, precio: m.Precio, importe: m.Importe,
     promedio: m.Promedio, resultado: m.Resultado
@@ -661,9 +762,9 @@ function actualizarDashboardConDatosReales(filas) {
 document.getElementById('updated-at').textContent =
   'Última actualización: ' + new Date().toLocaleString('es-ES') + ' (datos de ejemplo)';
 
-cargarDatosReales().then(filas => {
+Promise.all([cargarDatosReales(), cargarHistorialCapital(), cargarAportaciones()]).then(([filas, historial, aportaciones]) => {
   if (filas && filas.length > 0) {
-    actualizarDashboardConDatosReales(filas);
+    actualizarDashboardConDatosReales(filas, historial, aportaciones);
   }
 });
 </script>
