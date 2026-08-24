@@ -217,6 +217,17 @@
     </div>
   </div>
 
+  <div class="grid2">
+    <div class="panel">
+      <h2><span>Ventas necesarias para 100€</span><span>por tamaño de ciclo, con la media real de cada uno</span></h2>
+      <canvas id="chartVentasPara100"></canvas>
+    </div>
+    <div class="panel">
+      <h2><span>€ medio por ciclo</span><span>por nº de compras (nº ciclos)</span></h2>
+      <canvas id="chartEuroMedioCiclo"></canvas>
+    </div>
+  </div>
+
   <div class="panel">
     <h2><span>Últimos movimientos</span><span>ver todo en Google Sheets →</span></h2>
     <table id="tabla-movimientos">
@@ -384,7 +395,7 @@ pintarTabla(movimientosEjemplo);
 // ============================================================
 // GRÁFICAS (con datos de ejemplo; se sustituyen por reales si hay)
 // ============================================================
-let chartCapital, chartCiclos, chartDistrib, chartGanancia, chartBreakeven, chartComisiones;
+let chartCapital, chartCiclos, chartDistrib, chartGanancia, chartBreakeven, chartComisiones, chartVentasPara100, chartEuroMedioCiclo;
 
 // Colores de ejes/rejilla de las gráficas según el tema activo (mismos valores que --ink-dim y --line en el CSS)
 function coloresGrafico() {
@@ -394,7 +405,7 @@ function coloresGrafico() {
 
 function actualizarColoresGraficas() {
   const c = coloresGrafico();
-  [chartCapital, chartCiclos, chartDistrib, chartGanancia, chartBreakeven, chartComisiones].forEach(chart => {
+  [chartCapital, chartCiclos, chartDistrib, chartGanancia, chartBreakeven, chartComisiones, chartVentasPara100, chartEuroMedioCiclo].forEach(chart => {
     if (!chart) return;
     const escalas = chart.options.scales || {};
     ['x','y'].forEach(eje => {
@@ -467,6 +478,24 @@ function crearGraficas() {
         fill:true, tension:0.2, pointRadius:0, borderWidth:2 }] },
     options:{ responsive:true, plugins:{legend:{display:false}},
       scales:{ x:{display:false}, y:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10},callback:v=>'€'+(typeof v==='number'?v.toFixed(2):v)}, grid:{color:c.line}} } }
+  });
+
+  chartVentasPara100 = new Chart(document.getElementById('chartVentasPara100'), {
+    type:'bar',
+    data:{ labels:['1-2','3-4','5-8','9-13','14-20'],
+      datasets:[{ data:[30,8,4,2,1], backgroundColor:'#1f5c3f', hoverBackgroundColor:'#3ddc84', borderRadius:2 }] },
+    options:{ responsive:true, plugins:{legend:{display:false}},
+      scales:{ x:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10}},grid:{display:false}},
+        y:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10}},grid:{color:c.line}} } }
+  });
+
+  chartEuroMedioCiclo = new Chart(document.getElementById('chartEuroMedioCiclo'), {
+    type:'bar',
+    data:{ labels:['1-2','3-4','5-8','9-13','14-20'],
+      datasets:[{ data:[3.3,12.5,25,50,100], backgroundColor:'#1f5c3f', hoverBackgroundColor:'#3ddc84', borderRadius:2 }] },
+    options:{ responsive:true, plugins:{legend:{display:false}},
+      scales:{ x:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10}},grid:{display:false}},
+        y:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10},callback:v=>'€'+v}, grid:{color:c.line}} } }
   });
 }
 crearGraficas();
@@ -706,7 +735,8 @@ function actualizarDashboardConDatosReales(filas, historial, aportaciones) {
         const capitalCiclo = importe - resultado;
         ciclosInfo.push({
           compras: comprasEnCiclo,
-          pct: capitalCiclo > 0 ? (resultado / capitalCiclo * 100) : null
+          pct: capitalCiclo > 0 ? (resultado / capitalCiclo * 100) : null,
+          euros: resultado
         });
         comprasEnCiclo = 0;
       }
@@ -723,8 +753,9 @@ function actualizarDashboardConDatosReales(filas, historial, aportaciones) {
     ciclosInfo.forEach(c => {
       if (c.pct === null) return;
       const b = bucketDe(c.compras);
-      if (!buckets[b]) buckets[b] = { suma: 0, n: 0 };
+      if (!buckets[b]) buckets[b] = { suma: 0, sumaEuros: 0, n: 0 };
       buckets[b].suma += c.pct;
+      buckets[b].sumaEuros += c.euros;
       buckets[b].n += 1;
     });
     const ordenBuckets = ['1-2', '3-4', '5-8', '9-13', '14-20', '21+'];
@@ -732,6 +763,24 @@ function actualizarDashboardConDatosReales(filas, historial, aportaciones) {
     chartDistrib.data.labels = etiquetasDistrib.map(k => k + ' (' + buckets[k].n + ')');
     chartDistrib.data.datasets[0].data = etiquetasDistrib.map(k => buckets[k].suma / buckets[k].n);
     chartDistrib.update();
+
+    // € medio por ciclo y ventas necesarias para llegar a 100€, por tamaño
+    // de ciclo -- responde a "cuánto curro (nº de ventas) me cuesta cada
+    // tamaño de ciclo para llegar a la misma cifra objetivo", que es lo que
+    // de verdad importa para decidir si compensa dejar correr la cascada
+    // más profundo o vender pronto y repetir.
+    const OBJETIVO_EUROS = 100;
+    const bucketsPositivos = etiquetasDistrib.filter(k => buckets[k].sumaEuros / buckets[k].n > 0);
+    if (chartEuroMedioCiclo) {
+      chartEuroMedioCiclo.data.labels = bucketsPositivos.map(k => k + ' (' + buckets[k].n + ')');
+      chartEuroMedioCiclo.data.datasets[0].data = bucketsPositivos.map(k => buckets[k].sumaEuros / buckets[k].n);
+      chartEuroMedioCiclo.update();
+    }
+    if (chartVentasPara100) {
+      chartVentasPara100.data.labels = bucketsPositivos.map(k => k + ' (' + buckets[k].n + ')');
+      chartVentasPara100.data.datasets[0].data = bucketsPositivos.map(k => Math.ceil(OBJETIVO_EUROS / (buckets[k].sumaEuros / buckets[k].n)));
+      chartVentasPara100.update();
+    }
   }
 
   // Ganancia por ciclo: resultado real de cada venta (últimos 30 ciclos).
