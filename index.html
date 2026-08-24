@@ -434,7 +434,8 @@ function crearGraficas() {
     type:'bar',
     data:{ labels:['1-2','3-4','5-8','9-13','14-20'],
       datasets:[{ data:[6,8,3,4,1], backgroundColor:'#1f5c3f', hoverBackgroundColor:'#3ddc84', borderRadius:2 }] },
-    options:{ responsive:true, plugins:{legend:{display:false}},
+    options:{ responsive:true,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:ctx=>ctx.parsed.y.toFixed(2)+'%'}}},
       scales:{ x:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10}},grid:{display:false}},
         y:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10},callback:v=>v.toFixed(1)+'%'},grid:{color:c.line}} } }
   });
