@@ -219,11 +219,11 @@
 
   <div class="grid2">
     <div class="panel">
-      <h2><span>Ventas necesarias para 100€</span><span>por tamaño de ciclo, con la media real de cada uno</span></h2>
+      <h2><span>Ventas necesarias para el 10% del capital</span><span>por tamaño de ciclo, a escala de capital actual</span></h2>
       <canvas id="chartVentasPara100"></canvas>
     </div>
     <div class="panel">
-      <h2><span>€ medio por ciclo</span><span>por nº de compras (nº ciclos)</span></h2>
+      <h2><span>€ medio por ciclo (a capital actual)</span><span>por nº de compras (nº ciclos)</span></h2>
       <canvas id="chartEuroMedioCiclo"></canvas>
     </div>
   </div>
@@ -735,8 +735,7 @@ function actualizarDashboardConDatosReales(filas, historial, aportaciones) {
         const capitalCiclo = importe - resultado;
         ciclosInfo.push({
           compras: comprasEnCiclo,
-          pct: capitalCiclo > 0 ? (resultado / capitalCiclo * 100) : null,
-          euros: resultado
+          pct: capitalCiclo > 0 ? (resultado / capitalCiclo * 100) : null
         });
         comprasEnCiclo = 0;
       }
@@ -753,9 +752,9 @@ function actualizarDashboardConDatosReales(filas, historial, aportaciones) {
     ciclosInfo.forEach(c => {
       if (c.pct === null) return;
       const b = bucketDe(c.compras);
-      if (!buckets[b]) buckets[b] = { suma: 0, sumaEuros: 0, n: 0 };
+      if (!buckets[b]) buckets[b] = { suma: 0, sumaCompras: 0, n: 0 };
       buckets[b].suma += c.pct;
-      buckets[b].sumaEuros += c.euros;
+      buckets[b].sumaCompras += c.compras;
       buckets[b].n += 1;
     });
     const ordenBuckets = ['1-2', '3-4', '5-8', '9-13', '14-20', '21+'];
@@ -764,21 +763,32 @@ function actualizarDashboardConDatosReales(filas, historial, aportaciones) {
     chartDistrib.data.datasets[0].data = etiquetasDistrib.map(k => buckets[k].suma / buckets[k].n);
     chartDistrib.update();
 
-    // € medio por ciclo y ventas necesarias para llegar a 100€, por tamaño
-    // de ciclo -- responde a "cuánto curro (nº de ventas) me cuesta cada
-    // tamaño de ciclo para llegar a la misma cifra objetivo", que es lo que
-    // de verdad importa para decidir si compensa dejar correr la cascada
-    // más profundo o vender pronto y repetir.
-    const OBJETIVO_EUROS = 100;
-    const bucketsPositivos = etiquetasDistrib.filter(k => buckets[k].sumaEuros / buckets[k].n > 0);
+    // € medio por ciclo y ventas necesarias para llegar al 10% del capital,
+    // por tamaño de ciclo. En vez de promediar los € históricos de cada
+    // venta (que se descuadra cada vez que aportamos capital, porque el
+    // monto por orden cambia), separamos lo que SÍ es estable -- el % medio
+    // de retorno de cada profundidad, y el nº medio de compras que la
+    // componen -- de lo único que depende del momento actual: el monto de
+    // orden de HOY (capital actual / 15 órdenes). Así el € estimado siempre
+    // refleja la escala de capital de ahora mismo, no una mezcla del pasado.
+    const N_ORDENES = 15;
+    const OBJETIVO_PCT_CAPITAL = 10;
+    const montoOrdenActual = (capitalActual * 0.995) / N_ORDENES;
+    const bucketsPositivos = etiquetasDistrib.filter(k => buckets[k].suma / buckets[k].n > 0);
+    const eurMedioHoy = k => {
+      const avgPct = buckets[k].suma / buckets[k].n;
+      const avgCompras = buckets[k].sumaCompras / buckets[k].n;
+      return avgCompras * montoOrdenActual * (avgPct / 100);
+    };
     if (chartEuroMedioCiclo) {
       chartEuroMedioCiclo.data.labels = bucketsPositivos.map(k => k + ' (' + buckets[k].n + ')');
-      chartEuroMedioCiclo.data.datasets[0].data = bucketsPositivos.map(k => buckets[k].sumaEuros / buckets[k].n);
+      chartEuroMedioCiclo.data.datasets[0].data = bucketsPositivos.map(eurMedioHoy);
       chartEuroMedioCiclo.update();
     }
     if (chartVentasPara100) {
+      const objetivoEuros = capitalActual * (OBJETIVO_PCT_CAPITAL / 100);
       chartVentasPara100.data.labels = bucketsPositivos.map(k => k + ' (' + buckets[k].n + ')');
-      chartVentasPara100.data.datasets[0].data = bucketsPositivos.map(k => Math.ceil(OBJETIVO_EUROS / (buckets[k].sumaEuros / buckets[k].n)));
+      chartVentasPara100.data.datasets[0].data = bucketsPositivos.map(k => Math.ceil(objetivoEuros / eurMedioHoy(k)));
       chartVentasPara100.update();
     }
   }
