@@ -197,7 +197,7 @@
 
   <div class="grid2">
     <div class="panel">
-      <h2><span>Distribución de ciclos</span><span>por nº de compras hasta vender</span></h2>
+      <h2><span>Rentabilidad por tamaño de ciclo</span><span>% medio · nº compras (nº ciclos)</span></h2>
       <canvas id="chartDistrib"></canvas>
     </div>
     <div class="panel">
@@ -320,6 +320,21 @@ function parseNum(valor) {
   return parseFloat(String(valor).replace(',', '.'));
 }
 
+// Fechas en el Sheet vienen en dos formatos distintos según quién las escribe:
+// - el bot (columna Fecha de Hoja1, y Aportaciones) escribe texto ISO: "2026-08-24 06:52:26"
+// - Apps Script (pestaña Historial) guarda un objeto Date nativo, que Sheets
+//   exporta en formato local español: "23/08/2026 14:13:43" (día/mes/año)
+// new Date() de JS no interpreta bien ese segundo formato (lo confunde con
+// mes/día/año o directamente lo descarta), así que lo detectamos aparte.
+function parseFechaFlexible(str) {
+  str = String(str).trim();
+  const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) {
+    return new Date(+m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+  }
+  return new Date(str.replace(' ', 'T'));
+}
+
 // ============================================================
 // DATOS DE EJEMPLO (se usan solo si no hay datos reales aún)
 // ============================================================
@@ -421,7 +436,7 @@ function crearGraficas() {
       datasets:[{ data:[6,8,3,4,1], backgroundColor:'#1f5c3f', hoverBackgroundColor:'#3ddc84', borderRadius:2 }] },
     options:{ responsive:true, plugins:{legend:{display:false}},
       scales:{ x:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10}},grid:{display:false}},
-        y:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10}},grid:{color:c.line}} } }
+        y:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10},callback:v=>v.toFixed(1)+'%'},grid:{color:c.line}} } }
   });
 
   chartGanancia = new Chart(document.getElementById('chartGananciaCiclo'), {
@@ -650,7 +665,7 @@ function actualizarDashboardConDatosReales(filas, historial, aportaciones) {
 
   // Ciclos por semana: agrupa las ventas reales por semana (lunes de inicio).
   function claveSemana(fecha) {
-    const d = new Date(String(fecha).replace(' ', 'T'));
+    const d = parseFechaFlexible(fecha);
     const diaSemana = (d.getDay() + 6) % 7; // lunes=0 ... domingo=6
     const lunes = new Date(d);
     lunes.setDate(d.getDate() - diaSemana);
@@ -671,15 +686,30 @@ function actualizarDashboardConDatosReales(filas, historial, aportaciones) {
     document.getElementById('chart2-range').textContent = 'últimas ' + ultimasSemanas.length + ' sem.';
   }
 
-  // Distribución de ciclos: nº de compras acumuladas hasta cada venta.
+  // Rentabilidad por tamaño de ciclo: % medio de retorno de cada venta,
+  // agrupado por nº de compras que la formaron. El % (no el € bruto) es lo
+  // que hace comparables ciclos de tamaños muy distintos -- un ciclo de 15
+  // compras mueve mucho más capital que uno de 1-2, así que comparar euros
+  // totales favorecería siempre a los ciclos grandes sin decir nada de si
+  // "rinden mejor". Capital del ciclo = Importe - Resultado (lo que costó
+  // el BTC vendido), % = Resultado / capital del ciclo.
   if (ventas.length > 0 && chartDistrib) {
     let comprasEnCiclo = 0;
-    const ciclosCompras = [];
+    const ciclosInfo = [];
     filas.forEach(r => {
-      if (r.Tipo === 'BUY') comprasEnCiclo++;
-      else if (r.Tipo === 'SELL') { ciclosCompras.push(comprasEnCiclo); comprasEnCiclo = 0; }
+      if (r.Tipo === 'BUY') {
+        comprasEnCiclo++;
+      } else if (r.Tipo === 'SELL') {
+        const importe = parseNum(r.Importe);
+        const resultado = parseNum(r.Resultado);
+        const capitalCiclo = importe - resultado;
+        ciclosInfo.push({
+          compras: comprasEnCiclo,
+          pct: capitalCiclo > 0 ? (resultado / capitalCiclo * 100) : null
+        });
+        comprasEnCiclo = 0;
+      }
     });
-    const buckets = {'1-2':0, '3-4':0, '5-8':0, '9-13':0, '14-20':0, '21+':0};
     function bucketDe(n) {
       if (n <= 2) return '1-2';
       if (n <= 4) return '3-4';
@@ -688,10 +718,18 @@ function actualizarDashboardConDatosReales(filas, historial, aportaciones) {
       if (n <= 20) return '14-20';
       return '21+';
     }
-    ciclosCompras.forEach(n => { buckets[bucketDe(n)]++; });
-    const etiquetasDistrib = Object.keys(buckets).filter(k => k !== '21+' || buckets[k] > 0);
-    chartDistrib.data.labels = etiquetasDistrib;
-    chartDistrib.data.datasets[0].data = etiquetasDistrib.map(k => buckets[k]);
+    const buckets = {};
+    ciclosInfo.forEach(c => {
+      if (c.pct === null) return;
+      const b = bucketDe(c.compras);
+      if (!buckets[b]) buckets[b] = { suma: 0, n: 0 };
+      buckets[b].suma += c.pct;
+      buckets[b].n += 1;
+    });
+    const ordenBuckets = ['1-2', '3-4', '5-8', '9-13', '14-20', '21+'];
+    const etiquetasDistrib = ordenBuckets.filter(k => buckets[k]);
+    chartDistrib.data.labels = etiquetasDistrib.map(k => k + ' (' + buckets[k].n + ')');
+    chartDistrib.data.datasets[0].data = etiquetasDistrib.map(k => buckets[k].suma / buckets[k].n);
     chartDistrib.update();
   }
 
@@ -720,7 +758,7 @@ function actualizarDashboardConDatosReales(filas, historial, aportaciones) {
   // "Historial" -- los meses anteriores solo muestran la barra de aportación.
   if (aportaciones && aportaciones.length > 0 && chartBreakeven) {
     function claveMes(fechaStr) {
-      const d = new Date(String(fechaStr).replace(' ', 'T'));
+      const d = parseFechaFlexible(fechaStr);
       return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
     }
     const aportPorMes = new Map();
