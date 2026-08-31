@@ -331,6 +331,35 @@ function parseNum(valor) {
   return parseFloat(String(valor).replace(',', '.'));
 }
 
+// Cuando una venta se ejecuta en varios fills parciales, el bot escribe una
+// fila SELL por cada fill -- eso infla el recuento de "ciclos" (una venta
+// real de 10 fills parciales se contaba como 10 ciclos). Entre dos ciclos
+// de verdad distintos siempre hay al menos una compra nueva (la cascada
+// tiene que comprar antes de poder volver a vender), así que agrupamos
+// filas SELL consecutivas sin ninguna BUY en medio en un único ciclo,
+// sumando su Importe/Resultado/Comision.
+function agruparVentasParciales(filas) {
+  const resultado = [];
+  let grupoVenta = null;
+  filas.forEach(r => {
+    if (r.Tipo === 'SELL') {
+      if (grupoVenta) {
+        grupoVenta.Importe = (parseNum(grupoVenta.Importe) + parseNum(r.Importe)).toString();
+        grupoVenta.Resultado = (parseNum(grupoVenta.Resultado) + parseNum(r.Resultado)).toString();
+        grupoVenta.Comision = (parseNum(grupoVenta.Comision) + parseNum(r.Comision)).toString();
+        grupoVenta.Fecha = r.Fecha;
+      } else {
+        grupoVenta = Object.assign({}, r);
+      }
+    } else {
+      if (grupoVenta) { resultado.push(grupoVenta); grupoVenta = null; }
+      resultado.push(r);
+    }
+  });
+  if (grupoVenta) resultado.push(grupoVenta);
+  return resultado;
+}
+
 // Fechas en el Sheet vienen en dos formatos distintos según quién las escribe:
 // - el bot (columna Fecha de Hoja1, y Aportaciones) escribe texto ISO: "2026-08-24 06:52:26"
 // - Apps Script (pestaña Historial) guarda un objeto Date nativo, que Sheets
@@ -588,8 +617,13 @@ async function cargarAportaciones() {
   }
 }
 
-function actualizarDashboardConDatosReales(filas, historial, aportaciones) {
+function actualizarDashboardConDatosReales(filasOriginales, historial, aportaciones) {
   document.getElementById('placeholder-note').style.display = 'none';
+
+  // Agrupamos fills parciales de una misma venta antes de nada, para que
+  // todos los cálculos posteriores (nº de ciclos, gráficas, tabla) usen ya
+  // el dato correcto en vez del nº de filas SELL en bruto del Sheet.
+  const filas = agruparVentasParciales(filasOriginales);
 
   const ventas = filas.filter(r => r.Tipo === 'SELL');
   const comprasTotales = filas.filter(r => r.Tipo === 'BUY');
