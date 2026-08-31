@@ -375,6 +375,35 @@ function parseFechaFlexible(str) {
   return new Date(str.replace(' ', 'T'));
 }
 
+// % sobre el aportado final infravalora el rendimiento mientras el capital
+// siga creciendo por aportaciones nuevas -- 120€ diez días y luego 720€
+// tres días no es lo mismo que 720€ todo el mes. Aquí calculamos el capital
+// medio ponderado por los días reales que ha estado cada nivel de
+// aportación en la cuenta (desde la primera aportación hasta hoy), para
+// sacar un % que sí refleja el rendimiento real. A medida que el capital
+// aportado crezca frente a las aportaciones mensuales, este número
+// convergerá solo con el simple (aportado final), así que no hace falta
+// tocarlo más adelante.
+function capitalMedioPonderado(aportaciones) {
+  if (!aportaciones || aportaciones.length === 0) return null;
+  const eventos = aportaciones
+    .map(a => ({ fecha: parseFechaFlexible(a.Fecha), importe: parseNum(a.Importe) }))
+    .filter(e => !isNaN(e.fecha.getTime()))
+    .sort((a, b) => a.fecha - b.fecha);
+  if (eventos.length === 0) return null;
+
+  let capital = 0, sumaPonderada = 0, diasTotales = 0;
+  for (let i = 0; i < eventos.length; i++) {
+    const inicio = eventos[i].fecha;
+    const fin = i + 1 < eventos.length ? eventos[i + 1].fecha : new Date();
+    const dias = Math.max((fin - inicio) / 86400000, 0);
+    capital += eventos[i].importe;
+    sumaPonderada += dias * capital;
+    diasTotales += dias;
+  }
+  return diasTotales > 0 ? { capitalMedio: sumaPonderada / diasTotales, dias: diasTotales } : null;
+}
+
 // ============================================================
 // DATOS DE EJEMPLO (se usan solo si no hay datos reales aún)
 // ============================================================
@@ -677,10 +706,19 @@ function actualizarDashboardConDatosReales(filasOriginales, historial, aportacio
 
   if (gananciaReal !== null) {
     document.getElementById('kpi-ganancia').textContent = (gananciaReal >= 0 ? '+' : '') + euro(gananciaReal, 2);
-    const pctSobreAportado = gananciaReal / aportacionTotal * 100;
-    document.getElementById('kpi-ganancia-sub').textContent =
-      euro(capitalActual, 2) + ' capital − ' + euro(aportacionTotal, 2) + ' aportado · ' +
-      (pctSobreAportado >= 0 ? '+' : '') + pctSobreAportado.toFixed(2) + '%';
+    const ponderado = capitalMedioPonderado(aportaciones);
+    if (ponderado && ponderado.capitalMedio > 0) {
+      const pctSobreCapitalMedio = gananciaReal / ponderado.capitalMedio * 100;
+      document.getElementById('kpi-ganancia-sub').textContent =
+        (pctSobreCapitalMedio >= 0 ? '+' : '') + pctSobreCapitalMedio.toFixed(2) + '% real · ' +
+        'capital medio ' + euro(ponderado.capitalMedio, 2) + ' (' + Math.round(ponderado.dias) + 'd) · ' +
+        euro(capitalActual, 2) + ' actual − ' + euro(aportacionTotal, 2) + ' aportado';
+    } else {
+      const pctSobreAportado = gananciaReal / aportacionTotal * 100;
+      document.getElementById('kpi-ganancia-sub').textContent =
+        euro(capitalActual, 2) + ' capital − ' + euro(aportacionTotal, 2) + ' aportado · ' +
+        (pctSobreAportado >= 0 ? '+' : '') + pctSobreAportado.toFixed(2) + '%';
+    }
   } else {
     document.getElementById('kpi-ganancia').textContent = (gananciaTotal >= 0 ? '+' : '') + euro(gananciaTotal, 2);
     document.getElementById('kpi-ganancia-sub').textContent =
