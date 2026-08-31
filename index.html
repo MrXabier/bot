@@ -592,6 +592,7 @@ function actualizarDashboardConDatosReales(filas, historial, aportaciones) {
   document.getElementById('placeholder-note').style.display = 'none';
 
   const ventas = filas.filter(r => r.Tipo === 'SELL');
+  const comprasTotales = filas.filter(r => r.Tipo === 'BUY');
   const gananciaBruta = ventas.reduce((sum, v) => sum + (parseNum(v.Resultado) || 0), 0);
 
   // Solo cuentan para "posición abierta" las compras registradas DESPUÉS
@@ -653,7 +654,7 @@ function actualizarDashboardConDatosReales(filas, historial, aportaciones) {
   }
 
   document.getElementById('kpi-ciclos').textContent = ventas.length;
-  document.getElementById('kpi-ciclos-sub').textContent = 'desde el inicio';
+  document.getElementById('kpi-ciclos-sub').textContent = comprasTotales.length + ' compras totales · desde el inicio';
 
   document.getElementById('kpi-posicion').textContent = capitalInvertido > 0 ? euro(capitalInvertido, 2) : '—';
   // La columna "Promedio" del Sheet solo la rellena el bot en las filas de
