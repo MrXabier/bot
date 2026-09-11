@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulador Fiscal</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0b0f0d; --panel:#111713; --line:#1e2b23; --ink:#e8efe9; --ink-dim:#7f9186;
+    --green:#3ddc84; --green-dim:#1f5c3f; --amber:#e0a530; --red:#e05a4e;
+    --mono:'JetBrains Mono','SF Mono',Consolas,monospace; --sans:'Inter',system-ui,sans-serif;
+  }
+  [data-theme="light"]{
+    --bg:#f4f7f5; --panel:#ffffff; --line:#dde5e0; --ink:#131a15; --ink-dim:#5c6e63;
+    --green:#1f9d5c; --green-dim:#c8f0da; --amber:#b5790f; --red:#c8402f;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);padding:28px 20px 60px;transition:background .2s,color .2s;}
+  .wrap{max-width:960px;margin:0 auto;}
+  .theme-toggle{background:var(--panel);border:1px solid var(--line);color:var(--ink-dim);
+    font-family:var(--mono);font-size:11px;padding:6px 12px;border-radius:4px;cursor:pointer;display:flex;align-items:center;gap:6px;}
+  .theme-toggle:hover{color:var(--ink);border-color:var(--green);}
+  header{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--line);
+    padding-bottom:18px;margin-bottom:24px;flex-wrap:wrap;gap:10px;}
+  .brand{display:flex;align-items:baseline;gap:10px;}
+  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--amber);box-shadow:0 0 8px var(--amber);display:inline-block;}
+  h1{font-size:15px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-dim);}
+  .back{font-family:var(--mono);font-size:11px;color:var(--ink-dim);text-decoration:none;border:1px solid var(--line);
+    padding:6px 12px;border-radius:4px;}
+  .back:hover{color:var(--ink);border-color:var(--green);}
+  .note{font-family:var(--mono);font-size:11px;color:var(--ink-dim);line-height:1.6;background:var(--panel);
+    border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:20px;}
+  .note a{color:var(--green);}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px 20px;margin-bottom:20px;}
+  .panel h2{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:14px;}
+  .grid-inputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;}
+  .field label{display:block;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:5px;}
+  .field input, .field select{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--ink);
+    font-family:var(--mono);font-size:13px;padding:8px 9px;border-radius:4px;}
+  .field input:focus, .field select:focus{outline:none;border-color:var(--green);}
+  .field .hint{font-size:10px;color:var(--ink-dim);margin-top:4px;font-family:var(--mono);}
+  .actions{display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap;}
+  button.primary{background:var(--green-dim);border:1px solid var(--green);color:var(--green);
+    font-family:var(--mono);font-size:12px;font-weight:600;padding:10px 18px;border-radius:5px;cursor:pointer;letter-spacing:.03em;}
+  button.primary:hover{filter:brightness(1.15);}
+  .real-badge{font-family:var(--mono);font-size:10px;color:var(--green);background:var(--green-dim);
+    padding:3px 8px;border-radius:3px;display:inline-block;}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:1px;background:var(--line);
+    border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:20px;}
+  .kpi{background:var(--panel);padding:16px 18px;}
+  .kpi .label{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:8px;}
+  .kpi .value{font-family:var(--mono);font-size:22px;font-weight:600;}
+  .kpi .sub{font-family:var(--mono);font-size:11px;color:var(--ink-dim);margin-top:4px;}
+  .up{color:var(--green);} .down{color:var(--red);}
+  canvas{max-height:320px;}
+  table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px;}
+  th{text-align:right;color:var(--ink-dim);font-weight:500;padding:8px 10px;border-bottom:1px solid var(--line);
+    position:sticky;top:0;background:var(--panel);white-space:nowrap;}
+  th:first-child, td:first-child{text-align:left;}
+  td{text-align:right;padding:7px 10px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  .tabla-scroll{max-height:480px;overflow:auto;border:1px solid var(--line);border-radius:6px;}
+  tr.año-nuevo td{border-top:2px solid var(--green-dim);}
+  tr:hover td{background:rgba(61,220,132,0.04);}
+  .updated{font-family:var(--mono);font-size:11px;color:var(--ink-dim);margin-bottom:16px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <span class="dot"></span>
+      <h1>Simulador Fiscal — Proyección a largo plazo</h1>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <a class="back" href="index.html">&larr; volver al panel</a>
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()">🌙 Oscuro</button>
+    </div>
+  </header>
+
+  <div class="note">
+    Modelo de planificación, no cálculo fiscal definitivo. Supone que cada beneficio mensual es una ganancia
+    realizada gravable. El IRPF se calcula progresivamente durante el año (tramos de la base del ahorro,
+    <a href="https://sede.agenciatributaria.gob.es/Sede/ayuda/manuales-videos-folletos/manuales-ayuda-presentacion/irpf-2025/8-cumplimentacion-irpf/8_4-cuota-integra/8_4_4-gravamen-base-liquidable-ahorro.html" target="_blank" rel="noopener">fuente AEAT</a>)
+    y se paga en el mes indicado del año siguiente. La retirada personal se calcula sobre el beneficio neto
+    de impuestos, según el modo elegido abajo.
+  </div>
+
+  <div class="panel">
+    <h2>Rentabilidad mensual usada <span class="real-badge" id="badge-real" style="display:none;">calculada con tus datos reales</span></h2>
+    <div class="updated" id="rentabilidad-info">Cargando rentabilidad real desde el Sheet…</div>
+  </div>
+
+  <div class="panel">
+    <h2>Parámetros de la simulación</h2>
+    <div class="grid-inputs">
+      <div class="field">
+        <label>Capital inicial (€)</label>
+        <input type="number" id="in-capital" value="1000" step="1">
+      </div>
+      <div class="field">
+        <label>Rentabilidad mensual (%)</label>
+        <input type="number" id="in-rentabilidad" value="8" step="0.01">
+        <div class="hint" id="hint-rentabilidad">por defecto: tu media real</div>
+      </div>
+      <div class="field">
+        <label>Aportación mensual (€)</label>
+        <input type="number" id="in-aportacion" value="200" step="1">
+      </div>
+      <div class="field">
+        <label>Mes de inicio</label>
+        <input type="month" id="in-inicio" value="2026-09">
+      </div>
+      <div class="field">
+        <label>Meses a simular</label>
+        <input type="number" id="in-meses" value="120" step="1">
+      </div>
+      <div class="field">
+        <label>Aportación extra puntual (€)</label>
+        <input type="number" id="in-extra-importe" value="2000" step="1">
+        <div class="hint">0 para desactivarla</div>
+      </div>
+      <div class="field">
+        <label>Mes de la aportación extra</label>
+        <input type="month" id="in-extra-mes" value="2026-12">
+      </div>
+      <div class="field">
+        <label>Mes de pago del IRPF</label>
+        <select id="in-mes-irpf">
+          <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+          <option value="4">Abril</option><option value="5">Mayo</option><option value="6" selected>Junio</option>
+          <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+          <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+        </select>
+        <div class="hint">el IRPF del año N se paga en este mes de N+1</div>
+      </div>
+      <div class="field">
+        <label>Modo de retirada</label>
+        <select id="in-modo">
+          <option value="Mensual" selected>Mensual (cada mes que se alcance el objetivo)</option>
+          <option value="Anual">Anual (solo en diciembre)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>% del beneficio neto a retirar</label>
+        <input type="number" id="in-pct-retirada" value="80" step="1">
+      </div>
+      <div class="field">
+        <label>Objetivo mensual de retirada (€)</label>
+        <input type="number" id="in-objetivo" value="2500" step="50">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="primary" onclick="recalcular()">Recalcular</button>
+    </div>
+  </div>
+
+  <div class="kpis" id="kpis-resultado"></div>
+
+  <div class="panel">
+    <h2>Evolución del capital</h2>
+    <canvas id="chartCapital"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2>Detalle mes a mes</h2>
+    <div class="tabla-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Mes</th><th>Capital inicio</th><th>Beneficio bruto</th><th>Aportación</th>
+            <th>Impuesto mes</th><th>Beneficio neto</th><th>Pago IRPF</th><th>Retirada</th><th>Capital final</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-simulacion"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// TEMA
+// ============================================================
+function toggleTheme() {
+  const html = document.documentElement;
+  const btn = document.getElementById('theme-toggle');
+  const nuevo = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', nuevo);
+  btn.textContent = nuevo === 'dark' ? '🌙 Oscuro' : '☀️ Claro';
+  localStorage.setItem('dashboard-theme', nuevo);
+  if (chartCapital) actualizarColoresGrafica();
+}
+(function initTheme(){
+  const guardado = localStorage.getItem('dashboard-theme');
+  const html = document.documentElement;
+  const temaInicial = guardado || 'dark';
+  html.setAttribute('data-theme', temaInicial);
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('theme-toggle').textContent = temaInicial === 'dark' ? '🌙 Oscuro' : '☀️ Claro';
+  });
+})();
+
+// ============================================================
+// UTILIDADES (mismas que el panel principal)
+// ============================================================
+function euro(valor, decimales = 0) {
+  if (valor === null || valor === undefined || isNaN(valor)) return '—';
+  return '€' + Number(valor).toLocaleString('es-ES', {minimumFractionDigits: decimales, maximumFractionDigits: decimales});
+}
+function parseNum(valor) {
+  if (valor === null || valor === undefined || valor === '') return 0;
+  return parseFloat(String(valor).replace(',', '.'));
+}
+function parseFechaFlexible(str) {
+  str = String(str).trim();
+  const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) return new Date(+m[3], +m[2]-1, +m[1], +(m[4]||0), +(m[5]||0), +(m[6]||0));
+  return new Date(str.replace(' ', 'T'));
+}
+function parseCSVLine(line) {
+  const result = []; let cur = ''; let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"') { if (line[i+1] === '"') { cur += '"'; i++; } else { inQuotes = false; } }
+      else cur += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ',') { result.push(cur); cur = ''; }
+      else cur += c;
+    }
+  }
+  result.push(cur);
+  return result;
+}
+function parseCSV(text) {
+  const lines = text.trim().split("\n");
+  const headers = parseCSVLine(lines[0]).map(h => h.trim());
+  return lines.slice(1).map(line => {
+    const vals = parseCSVLine(line);
+    const row = {};
+    headers.forEach((h, i) => row[h] = (vals[i] || '').trim());
+    return row;
+  });
+}
+
+// Cuando una venta se ejecuta en varios fills parciales, el bot escribe una
+// fila SELL por cada fill -- las agrupamos en un unico ciclo (igual que en
+// el panel principal), aunque aqui solo nos hace falta para que el capital
+// real / ganancia real salgan correctos.
+function agruparVentasParciales(filas) {
+  const resultado = []; let grupoVenta = null;
+  filas.forEach(r => {
+    if (r.Tipo === 'SELL') {
+      if (grupoVenta) {
+        grupoVenta.Importe = (parseNum(grupoVenta.Importe) + parseNum(r.Importe)).toString();
+        grupoVenta.Resultado = (parseNum(grupoVenta.Resultado) + parseNum(r.Resultado)).toString();
+      } else grupoVenta = Object.assign({}, r);
+    } else {
+      if (grupoVenta) { resultado.push(grupoVenta); grupoVenta = null; }
+      resultado.push(r);
+    }
+  });
+  if (grupoVenta) resultado.push(grupoVenta);
+  return resultado;
+}
+
+function capitalMedioPonderado(aportaciones) {
+  if (!aportaciones || aportaciones.length === 0) return null;
+  const eventos = aportaciones
+    .map(a => ({ fecha: parseFechaFlexible(a.Fecha), importe: parseNum(a.Importe) }))
+    .filter(e => !isNaN(e.fecha.getTime()))
+    .sort((a, b) => a.fecha - b.fecha);
+  if (eventos.length === 0) return null;
+  let capital = 0, sumaPonderada = 0, diasTotales = 0;
+  for (let i = 0; i < eventos.length; i++) {
+    const inicio = eventos[i].fecha;
+    const fin = i + 1 < eventos.length ? eventos[i + 1].fecha : new Date();
+    const dias = Math.max((fin - inicio) / 86400000, 0);
+    capital += eventos[i].importe;
+    sumaPonderada += dias * capital;
+    diasTotales += dias;
+  }
+  return diasTotales > 0 ? { capitalMedio: sumaPonderada / diasTotales, dias: diasTotales } : null;
+}
+
+// ============================================================
+// CARGA DE DATOS REALES (mismo Sheet que el panel principal)
+// ============================================================
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQd7L9Uy5LwBa3WAmMVXr3NCi-eZneqnIGKglKl2qNIG9xf7WTEH25EzM9BvMzZeSqiDuVfuXJQYVBw/pub?gid=0&single=true&output=csv";
+const SHEET_APORTACIONES_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQd7L9Uy5LwBa3WAmMVXr3NCi-eZneqnIGKglKl2qNIG9xf7WTEH25EzM9BvMzZeSqiDuVfuXJQYVBw/pub?gid=1515562456&single=true&output=csv";
+
+async function cargarRentabilidadReal() {
+  const infoEl = document.getElementById('rentabilidad-info');
+  try {
+    const [resFilas, resAportaciones] = await Promise.all([
+      fetch(SHEET_CSV_URL, {cache:"no-store"}),
+      fetch(SHEET_APORTACIONES_CSV_URL, {cache:"no-store"})
+    ]);
+    if (!resFilas.ok || !resAportaciones.ok) throw new Error("No se pudo leer el Sheet");
+    const filas = agruparVentasParciales(parseCSV(await resFilas.text()).filter(r => r.Fecha && r.Tipo));
+    const aportaciones = parseCSV(await resAportaciones.text()).filter(r => r.Fecha && r.Importe);
+
+    const indiceUltimaVenta = filas.reduce((idx, r, i) => r.Tipo === 'SELL' ? i : idx, -1);
+    const comprasActivas = filas.filter((r, i) => r.Tipo === 'BUY' && i > indiceUltimaVenta);
+    const capitalInvertido = comprasActivas.reduce((sum, c) => sum + (parseNum(c.Importe) || 0), 0);
+    const filasConPortfolio = filas.filter(r => r.PortfolioTotalEUR);
+    const estadoRow = filasConPortfolio.length > 0 ? filasConPortfolio[filasConPortfolio.length - 1] : null;
+    const portfolioTotal = estadoRow ? parseNum(estadoRow.PortfolioTotalEUR) : null;
+    const capitalActual = portfolioTotal !== null ? portfolioTotal : capitalInvertido;
+
+    let aportacionTotal = 0;
+    if (aportaciones.length > 0) aportacionTotal = aportaciones.reduce((sum, a) => sum + (parseNum(a.Importe) || 0), 0);
+    const gananciaReal = aportacionTotal > 0 ? (capitalActual - aportacionTotal) : null;
+
+    const ponderado = capitalMedioPonderado(aportaciones);
+    if (gananciaReal !== null && ponderado && ponderado.capitalMedio > 0) {
+      const pctPeriodo = gananciaReal / ponderado.capitalMedio; // fraccion, sobre todo el periodo
+      const pctMensual = pctPeriodo / ponderado.dias * 30; // extrapolado a 30 dias
+      document.getElementById('in-rentabilidad').value = (pctMensual * 100).toFixed(2);
+      document.getElementById('hint-rentabilidad').textContent =
+        `real: ${(pctPeriodo*100).toFixed(2)}% en ${Math.round(ponderado.dias)}d -> ${(pctMensual*100).toFixed(2)}%/mes`;
+      document.getElementById('badge-real').style.display = 'inline-block';
+      infoEl.textContent = `Capital medio real ${euro(ponderado.capitalMedio,2)} en ${Math.round(ponderado.dias)} días · ganancia ${euro(gananciaReal,2)} · rentabilidad mensual equivalente ${(pctMensual*100).toFixed(2)}%`;
+    } else {
+      infoEl.textContent = 'No hay datos suficientes de aportaciones todavía -- usando el 8% de ejemplo.';
+    }
+    if (capitalActual > 0) document.getElementById('in-capital').value = Math.round(capitalActual);
+
+    recalcular();
+  } catch (e) {
+    console.error(e);
+    infoEl.textContent = 'No se pudieron cargar los datos reales -- usando valores de ejemplo (8%, 1.000€).';
+    recalcular();
+  }
+}
+
+// ============================================================
+// TRAMOS IRPF BASE DEL AHORRO (España) -- misma fuente que el Excel
+// ============================================================
+const TRAMOS_IRPF = [
+  {desde:0,      hasta:6000,   tipo:0.19, cuota:0},
+  {desde:6000,   hasta:50000,  tipo:0.21, cuota:1140},
+  {desde:50000,  hasta:200000, tipo:0.23, cuota:10380},
+  {desde:200000, hasta:300000, tipo:0.27, cuota:44880},
+  {desde:300000, hasta:Infinity, tipo:0.30, cuota:71880},
+];
+function irpfAcumulado(baseAnual) {
+  if (baseAnual <= 0) return 0;
+  for (const t of TRAMOS_IRPF) {
+    if (baseAnual <= t.hasta) return t.cuota + (baseAnual - t.desde) * t.tipo;
+  }
+  return 0;
+}
+
+// ============================================================
+// SIMULACIÓN MES A MES -- replica el modelo del Excel
+// ============================================================
+function simular(inputs) {
+  const filas = [];
+  let capital = inputs.capitalInicial;
+  let mes = new Date(inputs.anioInicio, inputs.mesInicio - 1, 1);
+  let cumAnual = 0;
+  let anioCum = mes.getFullYear();
+
+  for (let i = 0; i < inputs.mesesSimulados; i++) {
+    if (mes.getFullYear() !== anioCum) { cumAnual = 0; anioCum = mes.getFullYear(); }
+
+    const beneficioBruto = capital * inputs.rentabilidadMensual;
+    let aportacion = inputs.aportacionMensual;
+    if (inputs.extraImporte && mes.getFullYear() === inputs.extraAnio && (mes.getMonth()+1) === inputs.extraMes) {
+      aportacion += inputs.extraImporte;
+    }
+
+    const nuevoAnio = i === 0 || filas[i-1].mesObj.getFullYear() !== mes.getFullYear();
+    cumAnual += beneficioBruto;
+    const irpfAcumAnio = irpfAcumulado(cumAnual);
+    const irpfAcumAnioPrevio = nuevoAnio ? 0 : filas[i-1].irpfAcumAnio;
+    const impuestoMes = irpfAcumAnio - irpfAcumAnioPrevio;
+    const beneficioNeto = beneficioBruto - impuestoMes;
+
+    let pagoIRPF = 0;
+    if ((mes.getMonth()+1) === inputs.mesPagoIRPF && mes.getFullYear() > inputs.anioInicio && i >= 6) {
+      pagoIRPF = filas[i-6].irpfAcumAnio;
+    }
+
+    let retirada = 0;
+    if (inputs.modoRetirada === 'Mensual') {
+      if (beneficioNeto * inputs.pctRetirada >= inputs.objetivoMensual) retirada = beneficioNeto * inputs.pctRetirada;
+    } else if ((mes.getMonth()+1) === 12) {
+      const netoAnual = cumAnual - irpfAcumAnio;
+      if (netoAnual * inputs.pctRetirada >= inputs.objetivoMensual * 12) retirada = netoAnual * inputs.pctRetirada;
+    }
+
+    const capitalFinal = capital + beneficioBruto + aportacion - pagoIRPF - retirada;
+
+    filas.push({
+      mesObj: new Date(mes), capitalInicio: capital, beneficioBruto, aportacion,
+      impuestoMes, beneficioNeto, cumAnual, irpfAcumAnio, pagoIRPF, retirada, capitalFinal, nuevoAnio
+    });
+
+    capital = capitalFinal;
+    mes = new Date(mes.getFullYear(), mes.getMonth()+1, 1);
+  }
+  return filas;
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+let chartCapital = null;
+const MESES_ES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+
+function coloresGrafica() {
+  const claro = document.documentElement.getAttribute('data-theme') === 'light';
+  return { ink: claro ? '#5c6e63' : '#7f9186', line: claro ? '#dde5e0' : '#1e2b23', green: claro ? '#1f9d5c' : '#3ddc84' };
+}
+function actualizarColoresGrafica() {
+  const c = coloresGrafica();
+  if (!chartCapital) return;
+  chartCapital.options.scales.x.ticks.color = c.ink;
+  chartCapital.options.scales.y.ticks.color = c.ink;
+  chartCapital.options.scales.y.grid.color = c.line;
+  chartCapital.data.datasets[0].borderColor = c.green;
+  chartCapital.update();
+}
+
+function leerInputs() {
+  const [anioInicio, mesInicio] = document.getElementById('in-inicio').value.split('-').map(Number);
+  const [extraAnio, extraMes] = document.getElementById('in-extra-mes').value.split('-').map(Number);
+  return {
+    capitalInicial: parseFloat(document.getElementById('in-capital').value) || 0,
+    rentabilidadMensual: (parseFloat(document.getElementById('in-rentabilidad').value) || 0) / 100,
+    aportacionMensual: parseFloat(document.getElementById('in-aportacion').value) || 0,
+    anioInicio, mesInicio,
+    mesesSimulados: parseInt(document.getElementById('in-meses').value) || 0,
+    extraImporte: parseFloat(document.getElementById('in-extra-importe').value) || 0,
+    extraAnio, extraMes,
+    mesPagoIRPF: parseInt(document.getElementById('in-mes-irpf').value),
+    modoRetirada: document.getElementById('in-modo').value,
+    pctRetirada: (parseFloat(document.getElementById('in-pct-retirada').value) || 0) / 100,
+    objetivoMensual: parseFloat(document.getElementById('in-objetivo').value) || 0,
+  };
+}
+
+function recalcular() {
+  const inputs = leerInputs();
+  if (inputs.mesesSimulados <= 0) return;
+  const filas = simular(inputs);
+  const ultima = filas[filas.length - 1];
+  const totalAportado = inputs.capitalInicial + filas.reduce((s, f) => s + f.aportacion, 0);
+  const totalRetirado = filas.reduce((s, f) => s + f.retirada, 0);
+  const totalImpuestosPagados = filas.reduce((s, f) => s + f.pagoIRPF, 0);
+  const gananciaTotal = (ultima ? ultima.capitalFinal : inputs.capitalInicial) + totalRetirado - totalAportado;
+
+  document.getElementById('kpis-resultado').innerHTML = `
+    <div class="kpi"><div class="label">Capital final</div>
+      <div class="value">${euro(ultima ? ultima.capitalFinal : inputs.capitalInicial)}</div>
+      <div class="sub">tras ${inputs.mesesSimulados} meses</div></div>
+    <div class="kpi"><div class="label">Total aportado</div>
+      <div class="value">${euro(totalAportado)}</div>
+      <div class="sub">capital inicial + aportaciones</div></div>
+    <div class="kpi"><div class="label">Total retirado</div>
+      <div class="value up">${euro(totalRetirado)}</div>
+      <div class="sub">neto de IRPF, según el modo elegido</div></div>
+    <div class="kpi"><div class="label">IRPF pagado</div>
+      <div class="value down">${euro(totalImpuestosPagados)}</div>
+      <div class="sub">total abonado durante la simulación</div></div>
+    <div class="kpi"><div class="label">Ganancia total</div>
+      <div class="value ${gananciaTotal>=0?'up':'down'}">${gananciaTotal>=0?'+':''}${euro(gananciaTotal)}</div>
+      <div class="sub">capital final + retirado − aportado</div></div>
+  `;
+
+  const c = coloresGrafica();
+  const labels = filas.map(f => MESES_ES[f.mesObj.getMonth()] + ' ' + String(f.mesObj.getFullYear()).slice(2));
+  const paso = Math.max(1, Math.floor(filas.length / 40));
+  const labelsReducidos = labels.map((l, i) => i % paso === 0 ? l : '');
+  if (chartCapital) chartCapital.destroy();
+  chartCapital = new Chart(document.getElementById('chartCapital'), {
+    type: 'line',
+    data: { labels: labelsReducidos, datasets: [{ data: filas.map(f => f.capitalFinal),
+      borderColor: c.green, backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: 0.15 }] },
+    options: { responsive: true, plugins: { legend: { display: false } },
+      scales: { x: { ticks: { color: c.ink, font: { family: 'JetBrains Mono', size: 9 }, maxRotation: 0, autoSkip: false } },
+        y: { ticks: { color: c.ink, font: { family: 'JetBrains Mono', size: 10 }, callback: v => '€' + Number(v).toLocaleString('es-ES') },
+          grid: { color: c.line } } } }
+  });
+
+  const tbody = document.getElementById('tbody-simulacion');
+  tbody.innerHTML = filas.map(f => `
+    <tr class="${f.nuevoAnio ? 'año-nuevo' : ''}">
+      <td>${MESES_ES[f.mesObj.getMonth()]} ${f.mesObj.getFullYear()}</td>
+      <td>${euro(f.capitalInicio, 2)}</td>
+      <td>${euro(f.beneficioBruto, 2)}</td>
+      <td>${euro(f.aportacion, 2)}</td>
+      <td>${euro(f.impuestoMes, 2)}</td>
+      <td>${euro(f.beneficioNeto, 2)}</td>
+      <td>${f.pagoIRPF > 0 ? euro(f.pagoIRPF, 2) : '—'}</td>
+      <td>${f.retirada > 0 ? euro(f.retirada, 2) : '—'}</td>
+      <td>${euro(f.capitalFinal, 2)}</td>
+    </tr>
+  `).join('');
+}
+
+cargarRentabilidadReal();
+</script>
+</body>
+</html>
