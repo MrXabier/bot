@@ -96,7 +96,7 @@
     <h2>Parámetros de la simulación</h2>
     <div class="grid-inputs">
       <div class="field">
-        <label>Capital inicial (€)</label>
+        <label>Capital actual (€)</label>
         <input type="number" id="in-capital" value="1000" step="1">
       </div>
       <div class="field">
@@ -382,7 +382,11 @@ function simular(inputs) {
     if (mes.getFullYear() !== anioCum) { cumAnual = 0; anioCum = mes.getFullYear(); }
 
     const beneficioBruto = capital * inputs.rentabilidadMensual;
-    let aportacion = inputs.aportacionMensual;
+    // El mes 1 (el actual) parte del capital REAL de hoy, que ya incluye
+    // cualquier aportación mensual que hayas hecho ya este mes -- sumarla
+    // otra vez la duplicaría. La aportación periódica empieza a contar
+    // desde el segundo mes simulado en adelante.
+    let aportacion = i === 0 ? 0 : inputs.aportacionMensual;
     if (inputs.extraImporte && mes.getFullYear() === inputs.extraAnio && (mes.getMonth()+1) === inputs.extraMes) {
       aportacion += inputs.extraImporte;
     }
