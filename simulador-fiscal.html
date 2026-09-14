@@ -288,10 +288,74 @@ function capitalMedioPonderado(aportaciones) {
   return diasTotales > 0 ? { capitalMedio: sumaPonderada / diasTotales, dias: diasTotales } : null;
 }
 
+// Busca en el Historial (snapshots de capital cada 30 min) el mas cercano
+// EN o ANTES de una fecha objetivo -- para saber "cuanto capital habia
+// exactamente el dia 5".
+function capitalEnFecha(historial, fechaObjetivo) {
+  let mejor = null;
+  for (const h of historial) {
+    const f = parseFechaFlexible(h.Fecha);
+    const c = parseNum(h.CapitalTotalEUR);
+    if (isNaN(f.getTime()) || !c) continue;
+    if (f <= fechaObjetivo && (!mejor || f > mejor.fecha)) mejor = { fecha: f, capital: c };
+  }
+  return mejor ? mejor.capital : null;
+}
+
+// Rentabilidad del ULTIMO periodo mensual ya cerrado, anclado al dia del mes
+// en que empezaste a aportar (ej. dia 5) en vez de a dias corridos desde el
+// principio -- asi cada medida es un mes real y completo (30-31 dias), sin
+// mezclar trozos de dos meses ni tener que extrapolar nada.
+function ultimoPeriodoCompleto(aportaciones, historial, diaAncla) {
+  const hoy = new Date();
+  let fin = new Date(hoy.getFullYear(), hoy.getMonth(), diaAncla);
+  if (hoy.getDate() < diaAncla) fin = new Date(fin.getFullYear(), fin.getMonth() - 1, diaAncla);
+  const inicio = new Date(fin.getFullYear(), fin.getMonth() - 1, diaAncla);
+
+  const primeraAportacion = aportaciones.length > 0
+    ? aportaciones.map(a => parseFechaFlexible(a.Fecha)).sort((a, b) => a - b)[0] : null;
+  // Comparamos solo por día (sin hora): si tu primera aportación fue el
+  // mismo día que "inicio" (aunque a media mañana), ese SÍ es el arranque
+  // válido del período -- lo que descarta el período es que la primera
+  // aportación caiga DESPUÉS del día de inicio, no a qué hora del mismo día.
+  const primeraAportacionDia = primeraAportacion &&
+    new Date(primeraAportacion.getFullYear(), primeraAportacion.getMonth(), primeraAportacion.getDate());
+  if (!primeraAportacionDia || primeraAportacionDia > inicio) return null; // aun no hay un periodo completo
+
+  // Si "inicio" cae el mismo día que tu primera aportación de siempre, no
+  // hay historial anterior a ese momento porque no existía capital todavía
+  // -- el capital de partida es 0 (la propia aportación ya cuenta dentro
+  // del período, más abajo).
+  const capitalInicio = (primeraAportacionDia.getTime() === inicio.getTime())
+    ? 0 : capitalEnFecha(historial, inicio);
+  const capitalFin = capitalEnFecha(historial, fin);
+  if (capitalInicio === null || capitalFin === null) return null;
+
+  const aportacionesEnPeriodo = aportaciones
+    .map(a => ({ fecha: parseFechaFlexible(a.Fecha), importe: parseNum(a.Importe) }))
+    .filter(a => a.fecha > inicio && a.fecha <= fin);
+  const totalAportadoPeriodo = aportacionesEnPeriodo.reduce((s, a) => s + a.importe, 0);
+  const ganancia = capitalFin - capitalInicio - totalAportadoPeriodo;
+
+  const eventos = [{ fecha: inicio, importe: capitalInicio }, ...aportacionesEnPeriodo].sort((a, b) => a.fecha - b.fecha);
+  let capital = 0, sumaPonderada = 0, diasTotales = 0;
+  for (let i = 0; i < eventos.length; i++) {
+    const t0 = eventos[i].fecha;
+    const t1 = i + 1 < eventos.length ? eventos[i + 1].fecha : fin;
+    const dias = Math.max((t1 - t0) / 86400000, 0);
+    capital += eventos[i].importe;
+    sumaPonderada += dias * capital;
+    diasTotales += dias;
+  }
+  const capitalMedio = diasTotales > 0 ? sumaPonderada / diasTotales : capital;
+  return { inicio, fin, ganancia, capitalMedio, pct: capitalMedio > 0 ? ganancia / capitalMedio * 100 : null };
+}
+
 // ============================================================
 // CARGA DE DATOS REALES (mismo Sheet que el panel principal)
 // ============================================================
 const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQd7L9Uy5LwBa3WAmMVXr3NCi-eZneqnIGKglKl2qNIG9xf7WTEH25EzM9BvMzZeSqiDuVfuXJQYVBw/pub?gid=0&single=true&output=csv";
+const SHEET_HISTORIAL_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQd7L9Uy5LwBa3WAmMVXr3NCi-eZneqnIGKglKl2qNIG9xf7WTEH25EzM9BvMzZeSqiDuVfuXJQYVBw/pub?gid=89090495&single=true&output=csv";
 const SHEET_APORTACIONES_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQd7L9Uy5LwBa3WAmMVXr3NCi-eZneqnIGKglKl2qNIG9xf7WTEH25EzM9BvMzZeSqiDuVfuXJQYVBw/pub?gid=1515562456&single=true&output=csv";
 
 // La simulación siempre parte de "hoy": cada vez que se carga la página, el
@@ -308,12 +372,14 @@ async function cargarRentabilidadReal() {
   fijarMesActual();
   const infoEl = document.getElementById('rentabilidad-info');
   try {
-    const [resFilas, resAportaciones] = await Promise.all([
+    const [resFilas, resHistorial, resAportaciones] = await Promise.all([
       fetch(SHEET_CSV_URL, {cache:"no-store"}),
+      fetch(SHEET_HISTORIAL_CSV_URL, {cache:"no-store"}),
       fetch(SHEET_APORTACIONES_CSV_URL, {cache:"no-store"})
     ]);
     if (!resFilas.ok || !resAportaciones.ok) throw new Error("No se pudo leer el Sheet");
     const filas = agruparVentasParciales(parseCSV(await resFilas.text()).filter(r => r.Fecha && r.Tipo));
+    const historial = resHistorial.ok ? parseCSV(await resHistorial.text()).filter(r => r.Fecha && r.CapitalTotalEUR) : [];
     const aportaciones = parseCSV(await resAportaciones.text()).filter(r => r.Fecha && r.Importe);
 
     const indiceUltimaVenta = filas.reduce((idx, r, i) => r.Tipo === 'SELL' ? i : idx, -1);
@@ -328,17 +394,38 @@ async function cargarRentabilidadReal() {
     if (aportaciones.length > 0) aportacionTotal = aportaciones.reduce((sum, a) => sum + (parseNum(a.Importe) || 0), 0);
     const gananciaReal = aportacionTotal > 0 ? (capitalActual - aportacionTotal) : null;
 
-    const ponderado = capitalMedioPonderado(aportaciones);
-    if (gananciaReal !== null && ponderado && ponderado.capitalMedio > 0) {
-      const pctPeriodo = gananciaReal / ponderado.capitalMedio; // fraccion, sobre todo el periodo
-      const pctMensual = pctPeriodo / ponderado.dias * 30; // extrapolado a 30 dias
-      document.getElementById('in-rentabilidad').value = (pctMensual * 100).toFixed(2);
+    // Preferimos el ULTIMO MES YA CERRADO (anclado al día en que empezaste a
+    // aportar) -- es un dato real y completo, no una extrapolación. Solo si
+    // todavía no ha pasado un mes completo desde el inicio, recurrimos al
+    // cálculo por días corridos (extrapolado, más ruidoso mientras el "mes en
+    // curso" está a medias).
+    const primeraAportacion = aportaciones.length > 0
+      ? aportaciones.map(a => parseFechaFlexible(a.Fecha)).sort((a,b) => a-b)[0] : null;
+    const diaAncla = primeraAportacion ? primeraAportacion.getDate() : 5;
+    const periodo = historial.length > 0 ? ultimoPeriodoCompleto(aportaciones, historial, diaAncla) : null;
+
+    if (periodo && periodo.pct !== null) {
+      document.getElementById('in-rentabilidad').value = periodo.pct.toFixed(2);
+      const fmt = d => d.toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit', year:'numeric'});
       document.getElementById('hint-rentabilidad').textContent =
-        `real: ${(pctPeriodo*100).toFixed(2)}% en ${Math.round(ponderado.dias)}d -> ${(pctMensual*100).toFixed(2)}%/mes`;
+        `mes cerrado ${fmt(periodo.inicio)} - ${fmt(periodo.fin)}: ${periodo.pct.toFixed(2)}%/mes`;
+      document.getElementById('badge-real').textContent = 'último mes cerrado (día ' + diaAncla + ' a día ' + diaAncla + ')';
       document.getElementById('badge-real').style.display = 'inline-block';
-      infoEl.textContent = `Capital medio real ${euro(ponderado.capitalMedio,2)} en ${Math.round(ponderado.dias)} días · ganancia ${euro(gananciaReal,2)} · rentabilidad mensual equivalente ${(pctMensual*100).toFixed(2)}%`;
+      infoEl.textContent = `Último mes cerrado (${fmt(periodo.inicio)} - ${fmt(periodo.fin)}): capital medio ${euro(periodo.capitalMedio,2)} · ganancia ${euro(periodo.ganancia,2)} · rentabilidad ${periodo.pct.toFixed(2)}% -- se actualizará solo en cuanto pase el día ${diaAncla} del mes que viene.`;
     } else {
-      infoEl.textContent = 'No hay datos suficientes de aportaciones todavía -- usando el 8% de ejemplo.';
+      const ponderado = capitalMedioPonderado(aportaciones);
+      if (gananciaReal !== null && ponderado && ponderado.capitalMedio > 0) {
+        const pctPeriodo = gananciaReal / ponderado.capitalMedio;
+        const pctMensual = pctPeriodo / ponderado.dias * 30;
+        document.getElementById('in-rentabilidad').value = (pctMensual * 100).toFixed(2);
+        document.getElementById('hint-rentabilidad').textContent =
+          `aún no hay un mes cerrado -- estimado: real ${(pctPeriodo*100).toFixed(2)}% en ${Math.round(ponderado.dias)}d -> ${(pctMensual*100).toFixed(2)}%/mes`;
+        document.getElementById('badge-real').textContent = 'estimado (mes aún sin cerrar)';
+        document.getElementById('badge-real').style.display = 'inline-block';
+        infoEl.textContent = `Aún no ha pasado un mes completo desde tu primera aportación -- estimación por días corridos: capital medio real ${euro(ponderado.capitalMedio,2)} en ${Math.round(ponderado.dias)} días · ganancia ${euro(gananciaReal,2)} · rentabilidad mensual equivalente ${(pctMensual*100).toFixed(2)}%.`;
+      } else {
+        infoEl.textContent = 'No hay datos suficientes de aportaciones todavía -- usando el 8% de ejemplo.';
+      }
     }
     if (capitalActual > 0) document.getElementById('in-capital').value = Math.round(capitalActual);
 
