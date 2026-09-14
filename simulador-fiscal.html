@@ -302,42 +302,21 @@ function capitalEnFecha(historial, fechaObjetivo) {
   return mejor ? mejor.capital : null;
 }
 
-// Rentabilidad del ULTIMO periodo mensual ya cerrado, anclado al dia del mes
-// en que empezaste a aportar (ej. dia 5) en vez de a dias corridos desde el
-// principio -- asi cada medida es un mes real y completo (30-31 dias), sin
-// mezclar trozos de dos meses ni tener que extrapolar nada.
-function ultimoPeriodoCompleto(aportaciones, historial, diaAncla) {
-  const hoy = new Date();
-  let fin = new Date(hoy.getFullYear(), hoy.getMonth(), diaAncla);
-  if (hoy.getDate() < diaAncla) fin = new Date(fin.getFullYear(), fin.getMonth() - 1, diaAncla);
-  const inicio = new Date(fin.getFullYear(), fin.getMonth() - 1, diaAncla);
-
-  const primeraAportacion = aportaciones.length > 0
-    ? aportaciones.map(a => parseFechaFlexible(a.Fecha)).sort((a, b) => a - b)[0] : null;
-  // Comparamos solo por día (sin hora): si tu primera aportación fue el
-  // mismo día que "inicio" (aunque a media mañana), ese SÍ es el arranque
-  // válido del período -- lo que descarta el período es que la primera
-  // aportación caiga DESPUÉS del día de inicio, no a qué hora del mismo día.
-  const primeraAportacionDia = primeraAportacion &&
-    new Date(primeraAportacion.getFullYear(), primeraAportacion.getMonth(), primeraAportacion.getDate());
-  if (!primeraAportacionDia || primeraAportacionDia > inicio) return null; // aun no hay un periodo completo
-
-  // Si "inicio" cae el mismo día que tu primera aportación de siempre, no
-  // hay historial anterior a ese momento porque no existía capital todavía
-  // -- el capital de partida es 0 (la propia aportación ya cuenta dentro
-  // del período, más abajo).
-  const capitalInicio = (primeraAportacionDia.getTime() === inicio.getTime())
-    ? 0 : capitalEnFecha(historial, inicio);
+// % de UN mes concreto [inicio, fin), ambos anclados al día del mes en que
+// empezaste a aportar (ej. día 5) -- capital medio ponderado dentro de ese
+// mes exacto, sin extrapolar nada porque el propio tramo ya es un mes real.
+function pctDeUnMes(aportaciones, historial, inicio, fin, capitalInicioForzado) {
+  const capitalInicio = capitalInicioForzado !== null ? capitalInicioForzado : capitalEnFecha(historial, inicio);
   const capitalFin = capitalEnFecha(historial, fin);
   if (capitalInicio === null || capitalFin === null) return null;
 
-  const aportacionesEnPeriodo = aportaciones
+  const aportacionesEnMes = aportaciones
     .map(a => ({ fecha: parseFechaFlexible(a.Fecha), importe: parseNum(a.Importe) }))
     .filter(a => a.fecha > inicio && a.fecha <= fin);
-  const totalAportadoPeriodo = aportacionesEnPeriodo.reduce((s, a) => s + a.importe, 0);
-  const ganancia = capitalFin - capitalInicio - totalAportadoPeriodo;
+  const totalAportadoMes = aportacionesEnMes.reduce((s, a) => s + a.importe, 0);
+  const ganancia = capitalFin - capitalInicio - totalAportadoMes;
 
-  const eventos = [{ fecha: inicio, importe: capitalInicio }, ...aportacionesEnPeriodo].sort((a, b) => a.fecha - b.fecha);
+  const eventos = [{ fecha: inicio, importe: capitalInicio }, ...aportacionesEnMes].sort((a, b) => a.fecha - b.fecha);
   let capital = 0, sumaPonderada = 0, diasTotales = 0;
   for (let i = 0; i < eventos.length; i++) {
     const t0 = eventos[i].fecha;
@@ -348,7 +327,48 @@ function ultimoPeriodoCompleto(aportaciones, historial, diaAncla) {
     diasTotales += dias;
   }
   const capitalMedio = diasTotales > 0 ? sumaPonderada / diasTotales : capital;
-  return { inicio, fin, ganancia, capitalMedio, pct: capitalMedio > 0 ? ganancia / capitalMedio * 100 : null };
+  const pct = capitalMedio > 0 ? ganancia / capitalMedio * 100 : null;
+  return { inicio, fin, ganancia, capitalMedio, pct };
+}
+
+// Recorre mes a mes (anclado al día de tu primera aportación) desde el
+// principio hasta el último mes ya cerrado, y devuelve el % de CADA uno por
+// separado -- para poder promediarlos luego como pides: "agosto 8,77%,
+// septiembre 8,21%, la media es (8,77+8,21)/2", no una única cifra
+// ponderada por capital.
+function todosLosMesesCerrados(aportaciones, historial, diaAncla) {
+  const primeraAportacion = aportaciones.length > 0
+    ? aportaciones.map(a => parseFechaFlexible(a.Fecha)).sort((a, b) => a - b)[0] : null;
+  if (!primeraAportacion) return [];
+  const primeraAportacionDia = new Date(primeraAportacion.getFullYear(), primeraAportacion.getMonth(), primeraAportacion.getDate());
+
+  const hoy = new Date();
+  let ultimoCierre = new Date(hoy.getFullYear(), hoy.getMonth(), diaAncla);
+  if (hoy.getDate() < diaAncla) ultimoCierre = new Date(ultimoCierre.getFullYear(), ultimoCierre.getMonth() - 1, diaAncla);
+
+  const meses = [];
+  let inicio = primeraAportacionDia;
+  let primero = true;
+  while (true) {
+    const fin = new Date(inicio.getFullYear(), inicio.getMonth() + 1, diaAncla);
+    if (fin > ultimoCierre) break;
+    const m = pctDeUnMes(aportaciones, historial, inicio, fin, primero ? 0 : null);
+    if (m && m.pct !== null) meses.push(m);
+    inicio = fin;
+    primero = false;
+  }
+  return meses;
+}
+
+// Media aritmética simple (cada mes pesa igual) de los últimos N meses ya
+// cerrados -- fijo en 12, tal como se decidió: buena muestra para diluir un
+// mes atípico, sin arrastrar para siempre meses ya muy antiguos.
+const MESES_A_PROMEDIAR = 12;
+function mediaUltimosMeses(meses, n) {
+  if (meses.length === 0) return null;
+  const ultimos = meses.slice(-n);
+  const media = ultimos.reduce((s, m) => s + m.pct, 0) / ultimos.length;
+  return { media, n: ultimos.length, meses: ultimos };
 }
 
 // ============================================================
@@ -394,24 +414,30 @@ async function cargarRentabilidadReal() {
     if (aportaciones.length > 0) aportacionTotal = aportaciones.reduce((sum, a) => sum + (parseNum(a.Importe) || 0), 0);
     const gananciaReal = aportacionTotal > 0 ? (capitalActual - aportacionTotal) : null;
 
-    // Preferimos el ULTIMO MES YA CERRADO (anclado al día en que empezaste a
-    // aportar) -- es un dato real y completo, no una extrapolación. Solo si
-    // todavía no ha pasado un mes completo desde el inicio, recurrimos al
-    // cálculo por días corridos (extrapolado, más ruidoso mientras el "mes en
-    // curso" está a medias).
+    // Preferimos la MEDIA ARITMÉTICA de los últimos 12 meses YA CERRADOS
+    // (cada uno calculado por separado, anclado al día en que empezaste a
+    // aportar) -- son datos reales y completos, no una extrapolación, y al
+    // promediar varios meses con el mismo peso cada uno, un mes suelto
+    // atípico (muy bueno o muy malo) no arrastra solo toda la proyección a
+    // 10 años. Solo si todavía no ha pasado ni un mes completo desde el
+    // inicio, recurrimos al cálculo por días corridos (extrapolado, más
+    // ruidoso).
     const primeraAportacion = aportaciones.length > 0
       ? aportaciones.map(a => parseFechaFlexible(a.Fecha)).sort((a,b) => a-b)[0] : null;
     const diaAncla = primeraAportacion ? primeraAportacion.getDate() : 5;
-    const periodo = historial.length > 0 ? ultimoPeriodoCompleto(aportaciones, historial, diaAncla) : null;
+    const mesesCerrados = historial.length > 0 ? todosLosMesesCerrados(aportaciones, historial, diaAncla) : [];
+    const media = mediaUltimosMeses(mesesCerrados, MESES_A_PROMEDIAR);
 
-    if (periodo && periodo.pct !== null) {
-      document.getElementById('in-rentabilidad').value = periodo.pct.toFixed(2);
+    if (media) {
+      document.getElementById('in-rentabilidad').value = media.media.toFixed(2);
       const fmt = d => d.toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit', year:'numeric'});
+      const etiquetaMeses = media.n === 1 ? '1 mes cerrado' : media.n + ' meses cerrados';
+      const detalleMeses = media.meses.map(m => fmt(m.fin) + ': ' + (m.pct>=0?'+':'') + m.pct.toFixed(2) + '%').join(' · ');
       document.getElementById('hint-rentabilidad').textContent =
-        `mes cerrado ${fmt(periodo.inicio)} - ${fmt(periodo.fin)}: ${periodo.pct.toFixed(2)}%/mes`;
-      document.getElementById('badge-real').textContent = 'último mes cerrado (día ' + diaAncla + ' a día ' + diaAncla + ')';
+        `media de ${etiquetaMeses}: ${media.media.toFixed(2)}%/mes`;
+      document.getElementById('badge-real').textContent = 'media de ' + etiquetaMeses;
       document.getElementById('badge-real').style.display = 'inline-block';
-      infoEl.textContent = `Último mes cerrado (${fmt(periodo.inicio)} - ${fmt(periodo.fin)}): capital medio ${euro(periodo.capitalMedio,2)} · ganancia ${euro(periodo.ganancia,2)} · rentabilidad ${periodo.pct.toFixed(2)}% -- se actualizará solo en cuanto pase el día ${diaAncla} del mes que viene.`;
+      infoEl.textContent = `Media de ${etiquetaMeses} (últimos ${MESES_A_PROMEDIAR} como máximo) -> ${media.media.toFixed(2)}% de media mensual. Detalle: ${detalleMeses}. Se actualizará solo en cuanto pase el día ${diaAncla} del mes que viene.`;
     } else {
       const ponderado = capitalMedioPonderado(aportaciones);
       if (gananciaReal !== null && ponderado && ponderado.capitalMedio > 0) {
