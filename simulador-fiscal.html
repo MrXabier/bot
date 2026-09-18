@@ -111,7 +111,7 @@
       <div class="field">
         <label>Mes de inicio</label>
         <input type="month" id="in-inicio" value="2026-09">
-        <div class="hint">por defecto: el mes actual</div>
+        <div class="hint">por defecto: el mes que viene (no el actual, para no duplicar lo que ya ha crecido este mes)</div>
       </div>
       <div class="field">
         <label>Meses a simular</label>
@@ -378,14 +378,19 @@ const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQd7L9Uy5
 const SHEET_HISTORIAL_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQd7L9Uy5LwBa3WAmMVXr3NCi-eZneqnIGKglKl2qNIG9xf7WTEH25EzM9BvMzZeSqiDuVfuXJQYVBw/pub?gid=89090495&single=true&output=csv";
 const SHEET_APORTACIONES_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQd7L9Uy5LwBa3WAmMVXr3NCi-eZneqnIGKglKl2qNIG9xf7WTEH25EzM9BvMzZeSqiDuVfuXJQYVBw/pub?gid=1515562456&single=true&output=csv";
 
-// La simulación siempre parte de "hoy": cada vez que se carga la página, el
-// mes de inicio se fija al mes actual real, no a una fecha fija guardada en
-// el archivo -- así en noviembre la proyección arranca en noviembre, no se
-// queda mirando lo que ya pasó en septiembre.
+// La simulación siempre parte del día 1 del MES QUE VIENE, nunca del mes en
+// curso. Si arrancara en el mes actual, el "capital actual" (de hoy, a
+// mitad de mes) ya lleva dentro el crecimiento real de los días que van de
+// mes -- y aplicarle encima un mes ENTERO más de rentabilidad duplicaría
+// ese tramo ya vivido, inflando la base de la que parten los 120 meses
+// siguientes. Empezando en el mes que viene, el capital de hoy es
+// simplemente el punto de partida de un mes completo y limpio, sin mezclar
+// días ya pasados con la proyección futura.
 function fijarMesActual() {
   const hoy = new Date();
-  const mesActual = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0');
-  document.getElementById('in-inicio').value = mesActual;
+  const mesQueViene = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1);
+  const valor = mesQueViene.getFullYear() + '-' + String(mesQueViene.getMonth() + 1).padStart(2, '0');
+  document.getElementById('in-inicio').value = valor;
 }
 
 async function cargarRentabilidadReal() {
@@ -495,11 +500,10 @@ function simular(inputs) {
     if (mes.getFullYear() !== anioCum) { cumAnual = 0; anioCum = mes.getFullYear(); }
 
     const beneficioBruto = capital * inputs.rentabilidadMensual;
-    // El mes 1 (el actual) parte del capital REAL de hoy, que ya incluye
-    // cualquier aportación mensual que hayas hecho ya este mes -- sumarla
-    // otra vez la duplicaría. La aportación periódica empieza a contar
-    // desde el segundo mes simulado en adelante.
-    let aportacion = i === 0 ? 0 : inputs.aportacionMensual;
+    // El mes 1 de la simulación siempre es un mes futuro (nunca el actual,
+    // ver fijarMesActual), así que esta aportación aún no se ha hecho y
+    // cuenta como cualquier otro mes.
+    let aportacion = inputs.aportacionMensual;
     if (inputs.extraImporte && mes.getFullYear() === inputs.extraAnio && (mes.getMonth()+1) === inputs.extraMes) {
       aportacion += inputs.extraImporte;
     }
