@@ -927,8 +927,17 @@ function actualizarDashboardConDatosReales(filasOriginales, historial, aportacio
     promedio: m.Promedio, resultado: m.Resultado
   })));
 
+  // OJO: "ahora" es la hora del NAVEGADOR al cargar la página, no la hora
+  // real del último dato -- el CSV publicado de Google Sheets tiene su
+  // propio caché en el servidor y puede tardar unos minutos en reflejar
+  // cambios recientes de la hoja, aunque la página se acabe de cargar. Por
+  // eso mostramos aparte "datos hasta" con la fecha real de la última fila,
+  // que es la que de verdad indica si lo que ves está al día o no.
+  const ultimaFila = filas.length > 0 ? filas[filas.length - 1] : null;
+  const fechaUltimoDato = ultimaFila ? parseFechaFlexible(ultimaFila.Fecha).toLocaleString('es-ES') : '—';
   document.getElementById('updated-at').textContent =
-    'Última actualización: ' + new Date().toLocaleString('es-ES') + ' · ' + filas.length + ' operaciones reales';
+    'Página cargada: ' + new Date().toLocaleString('es-ES') +
+    ' · datos hasta: ' + fechaUltimoDato + ' · ' + filas.length + ' operaciones reales';
 }
 
 document.getElementById('updated-at').textContent =
