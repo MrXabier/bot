@@ -94,6 +94,14 @@
   .tag.buy{background:rgba(61,220,132,0.12);color:var(--green);}
   .tag.sell{background:rgba(224,165,48,0.12);color:var(--amber);}
 
+  .seg-toggle{display:flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;}
+  .seg-toggle button{
+    background:var(--panel);border:none;color:var(--ink-dim);
+    font-family:var(--mono);font-size:11px;padding:5px 12px;cursor:pointer;
+  }
+  .seg-toggle button.active{background:var(--green-dim);color:var(--green);}
+  .seg-toggle button:hover:not(.active){color:var(--ink);}
+
   .grid2{display:grid;grid-template-columns:1.4fr 1fr;gap:20px;}
   @media (max-width:720px){
     .kpis{grid-template-columns:repeat(2,1fr);}
@@ -183,6 +191,17 @@
       <div class="value" id="kpi-impuestos">€56,62</div>
       <div class="sub" id="kpi-impuestos-sub">19% sobre €298 de ganancia neta</div>
     </div>
+  </div>
+
+  <div class="panel">
+    <h2>
+      <span>Beneficio por mes</span>
+      <span class="seg-toggle">
+        <button id="btn-beneficio-eur" class="active" onclick="cambiarModoBeneficioMensual('eur')">€</button>
+        <button id="btn-beneficio-pct" onclick="cambiarModoBeneficioMensual('pct')">%</button>
+      </span>
+    </h2>
+    <canvas id="chartBeneficioMensual"></canvas>
   </div>
 
   <div class="grid2">
@@ -405,6 +424,85 @@ function capitalMedioPonderado(aportaciones) {
   return diasTotales > 0 ? { capitalMedio: sumaPonderada / diasTotales, dias: diasTotales } : null;
 }
 
+// Busca en el Historial (snapshots reales de capital que guarda el Apps
+// Script) el más cercano a una fecha objetivo, sin pasarse de ella.
+function capitalEnFecha(historial, fechaObjetivo) {
+  if (!historial || historial.length === 0) return null;
+  let candidato = null, fechaCandidato = null;
+  for (const h of historial) {
+    const f = parseFechaFlexible(h.Fecha);
+    if (f <= fechaObjetivo && (!fechaCandidato || f > fechaCandidato)) {
+      candidato = h;
+      fechaCandidato = f;
+    }
+  }
+  return candidato ? parseNum(candidato.CapitalTotalEUR) : null;
+}
+
+// % y € reales de un mes concreto [inicio, fin): capital real al cierre
+// menos capital real al inicio menos lo aportado en medio, sobre una media
+// ponderada por días (igual que en el simulador fiscal) para que una
+// aportación a mitad de mes no infle ni desinfle el % de golpe.
+function pctDeUnMes(aportaciones, historial, inicio, fin, capitalInicioForzado) {
+  const capitalInicio = (capitalInicioForzado !== null && capitalInicioForzado !== undefined)
+    ? capitalInicioForzado : capitalEnFecha(historial, inicio);
+  const capitalFin = capitalEnFecha(historial, fin);
+  if (capitalInicio === null || capitalFin === null) return null;
+
+  const aportacionesEnMes = aportaciones
+    .map(a => ({ fecha: parseFechaFlexible(a.Fecha), importe: parseNum(a.Importe) }))
+    .filter(a => a.fecha > inicio && a.fecha <= fin);
+  const totalAportadoMes = aportacionesEnMes.reduce((s, a) => s + a.importe, 0);
+  const ganancia = capitalFin - capitalInicio - totalAportadoMes;
+
+  const eventos = [{ fecha: inicio, importe: capitalInicio }, ...aportacionesEnMes].sort((a, b) => a.fecha - b.fecha);
+  let capital = 0, sumaPonderada = 0, diasTotales = 0;
+  for (let i = 0; i < eventos.length; i++) {
+    const t0 = eventos[i].fecha;
+    const t1 = i + 1 < eventos.length ? eventos[i + 1].fecha : fin;
+    const dias = Math.max((t1 - t0) / 86400000, 0);
+    capital += eventos[i].importe;
+    sumaPonderada += dias * capital;
+    diasTotales += dias;
+  }
+  const capitalMedio = diasTotales > 0 ? sumaPonderada / diasTotales : capital;
+  const pct = capitalMedio > 0 ? ganancia / capitalMedio * 100 : null;
+  return { inicio, fin, ganancia, capitalMedio, pct };
+}
+
+// Todos los meses ya cerrados (anclados al día del mes de tu primera
+// aportación) más el mes actual en curso (parcial, hasta hoy).
+function mesesConBeneficio(aportaciones, historial) {
+  if (!aportaciones || aportaciones.length === 0 || !historial || historial.length === 0) return [];
+  const fechasAportacion = aportaciones.map(a => parseFechaFlexible(a.Fecha)).sort((a, b) => a - b);
+  const primeraAportacion = fechasAportacion[0];
+  const diaAncla = primeraAportacion.getDate();
+  const primeraAportacionDia = new Date(primeraAportacion.getFullYear(), primeraAportacion.getMonth(), primeraAportacion.getDate());
+
+  const hoy = new Date();
+  let ultimoCierre = new Date(hoy.getFullYear(), hoy.getMonth(), diaAncla);
+  if (hoy.getDate() < diaAncla) ultimoCierre = new Date(ultimoCierre.getFullYear(), ultimoCierre.getMonth() - 1, diaAncla);
+
+  const meses = [];
+  let inicio = primeraAportacionDia;
+  let primero = true;
+  while (true) {
+    const fin = new Date(inicio.getFullYear(), inicio.getMonth() + 1, diaAncla);
+    if (fin > ultimoCierre) break;
+    const m = pctDeUnMes(aportaciones, historial, inicio, fin, primero ? 0 : null);
+    if (m && m.pct !== null) meses.push(Object.assign(m, { enCurso: false }));
+    inicio = fin;
+    primero = false;
+  }
+  // Mes actual, en curso (desde el último cierre hasta hoy) -- si ya hay
+  // algún día transcurrido desde ese cierre.
+  if (hoy > ultimoCierre) {
+    const actual = pctDeUnMes(aportaciones, historial, ultimoCierre, hoy, primero ? 0 : null);
+    if (actual && actual.pct !== null) meses.push(Object.assign(actual, { enCurso: true }));
+  }
+  return meses;
+}
+
 // ============================================================
 // DATOS DE EJEMPLO (se usan solo si no hay datos reales aún)
 // ============================================================
@@ -454,7 +552,12 @@ pintarTabla(movimientosEjemplo);
 // ============================================================
 // GRÁFICAS (con datos de ejemplo; se sustituyen por reales si hay)
 // ============================================================
-let chartCapital, chartCiclos, chartDistrib, chartGanancia, chartBreakeven, chartComisiones, chartVentasPara100, chartEuroMedioCiclo;
+let chartCapital, chartCiclos, chartDistrib, chartGanancia, chartBreakeven, chartComisiones, chartVentasPara100, chartEuroMedioCiclo, chartBeneficioMensual;
+
+// Datos vivos (€ y %) del beneficio por mes, para poder alternar sin
+// recalcular -- se rellenan con datos reales en actualizarDashboardConDatosReales.
+let datosBeneficioMensual = { labels: [], eur: [], pct: [], enCurso: [] };
+let modoBeneficioMensual = 'eur';
 
 // Colores de ejes/rejilla de las gráficas según el tema activo (mismos valores que --ink-dim y --line en el CSS)
 function coloresGrafico() {
@@ -464,7 +567,7 @@ function coloresGrafico() {
 
 function actualizarColoresGraficas() {
   const c = coloresGrafico();
-  [chartCapital, chartCiclos, chartDistrib, chartGanancia, chartBreakeven, chartComisiones, chartVentasPara100, chartEuroMedioCiclo].forEach(chart => {
+  [chartCapital, chartCiclos, chartDistrib, chartGanancia, chartBreakeven, chartComisiones, chartVentasPara100, chartEuroMedioCiclo, chartBeneficioMensual].forEach(chart => {
     if (!chart) return;
     const escalas = chart.options.scales || {};
     ['x','y'].forEach(eje => {
@@ -556,8 +659,42 @@ function crearGraficas() {
       scales:{ x:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10}},grid:{display:false}},
         y:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10},callback:v=>'€'+v}, grid:{color:c.line}} } }
   });
+
+  // Beneficio por mes -- datos de ejemplo, se sustituyen por reales si hay
+  // aportaciones + historial de capital.
+  datosBeneficioMensual = {
+    labels: ['ago 26', 'sept 26 (en curso)'],
+    eur: [92, 56],
+    pct: [20, 12],
+    enCurso: [false, true]
+  };
+  chartBeneficioMensual = new Chart(document.getElementById('chartBeneficioMensual'), {
+    type:'bar',
+    data:{ labels: datosBeneficioMensual.labels,
+      datasets:[{ data: datosBeneficioMensual.eur,
+        backgroundColor: datosBeneficioMensual.eur.map((v,i) => datosBeneficioMensual.enCurso[i] ? 'rgba(61,220,132,0.4)' : (v>=0?'#3ddc84':'#e05a4e')),
+        borderRadius:2 }] },
+    options:{ responsive:true, plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:ctx => modoBeneficioMensual==='eur' ? euro(ctx.parsed.y,2) : ctx.parsed.y.toFixed(2)+'%'}}},
+      scales:{ x:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10}},grid:{display:false}},
+        y:{ticks:{color:c.inkDim,font:{family:'JetBrains Mono',size:10},callback:v=>modoBeneficioMensual==='eur'?'€'+v:v+'%'}, grid:{color:c.line}} } }
+  });
 }
 crearGraficas();
+
+// Alterna el gráfico de beneficio mensual entre € y %.
+function cambiarModoBeneficioMensual(modo) {
+  modoBeneficioMensual = modo;
+  document.getElementById('btn-beneficio-eur').classList.toggle('active', modo === 'eur');
+  document.getElementById('btn-beneficio-pct').classList.toggle('active', modo === 'pct');
+  if (!chartBeneficioMensual) return;
+  const datos = modo === 'eur' ? datosBeneficioMensual.eur : datosBeneficioMensual.pct;
+  chartBeneficioMensual.data.labels = datosBeneficioMensual.labels;
+  chartBeneficioMensual.data.datasets[0].data = datos;
+  chartBeneficioMensual.data.datasets[0].backgroundColor = datos.map((v,i) =>
+    datosBeneficioMensual.enCurso[i] ? 'rgba(61,220,132,0.4)' : (v>=0?'#3ddc84':'#e05a4e'));
+  chartBeneficioMensual.update();
+}
 
 // ============================================================
 // CONEXIÓN A DATOS REALES — Google Sheet publicado como CSV
@@ -920,6 +1057,22 @@ function actualizarDashboardConDatosReales(filasOriginales, historial, aportacio
     chartBreakeven.data.datasets[0].data = datosAportacion;
     chartBreakeven.data.datasets[1].data = datosGanancia;
     chartBreakeven.update();
+  }
+
+  // Beneficio por mes (€ y %), anclado al día de tu primera aportación --
+  // misma lógica de "mes cerrado" que el simulador fiscal, más el mes actual
+  // en curso (parcial, se va actualizando solo según pasan los días).
+  if (aportaciones && aportaciones.length > 0 && historial && historial.length > 0 && chartBeneficioMensual) {
+    const meses = mesesConBeneficio(aportaciones, historial);
+    if (meses.length > 0) {
+      datosBeneficioMensual = {
+        labels: meses.map(m => m.inicio.toLocaleDateString('es-ES', {month:'short', year:'2-digit'}) + (m.enCurso ? ' (en curso)' : '')),
+        eur: meses.map(m => Math.round(m.ganancia * 100) / 100),
+        pct: meses.map(m => Math.round(m.pct * 100) / 100),
+        enCurso: meses.map(m => m.enCurso)
+      };
+      cambiarModoBeneficioMensual(modoBeneficioMensual);
+    }
   }
 
   pintarTabla(filas.slice(-15).reverse().map(m => ({
