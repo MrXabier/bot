@@ -151,6 +151,11 @@
         <label>Objetivo mensual de retirada (€)</label>
         <input type="number" id="in-objetivo" value="2500" step="50">
       </div>
+      <div class="field">
+        <label>Extracción máxima mensual (€)</label>
+        <input type="number" id="in-extraccion-max" value="5000" step="100">
+        <div class="hint">tope a lo que se retira cada mes (en modo Anual, tope = esto × 12) · 0 = sin límite</div>
+      </div>
     </div>
     <div class="actions">
       <button class="primary" onclick="recalcular()">Recalcular</button>
@@ -522,10 +527,14 @@ function simular(inputs) {
 
     let retirada = 0;
     if (inputs.modoRetirada === 'Mensual') {
-      if (beneficioNeto * inputs.pctRetirada >= inputs.objetivoMensual) retirada = beneficioNeto * inputs.pctRetirada;
+      if (beneficioNeto * inputs.pctRetirada >= inputs.objetivoMensual) {
+        retirada = Math.min(beneficioNeto * inputs.pctRetirada, inputs.extraccionMaxMensual);
+      }
     } else if ((mes.getMonth()+1) === 12) {
       const netoAnual = cumAnual - irpfAcumAnio;
-      if (netoAnual * inputs.pctRetirada >= inputs.objetivoMensual * 12) retirada = netoAnual * inputs.pctRetirada;
+      if (netoAnual * inputs.pctRetirada >= inputs.objetivoMensual * 12) {
+        retirada = Math.min(netoAnual * inputs.pctRetirada, inputs.extraccionMaxMensual * 12);
+      }
     }
 
     const capitalFinal = capital + beneficioBruto + aportacion - pagoIRPF - retirada;
@@ -576,6 +585,7 @@ function leerInputs() {
     modoRetirada: document.getElementById('in-modo').value,
     pctRetirada: (parseFloat(document.getElementById('in-pct-retirada').value) || 0) / 100,
     objetivoMensual: parseFloat(document.getElementById('in-objetivo').value) || 0,
+    extraccionMaxMensual: parseFloat(document.getElementById('in-extraccion-max').value) || Infinity,
   };
 }
 
