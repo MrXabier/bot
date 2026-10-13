@@ -117,14 +117,11 @@
         <label>Meses a simular</label>
         <input type="number" id="in-meses" value="120" step="1">
       </div>
-      <div class="field">
-        <label>Aportación extra puntual (€)</label>
-        <input type="number" id="in-extra-importe" value="0" step="1">
-        <div class="hint">0 = desactivada</div>
-      </div>
-      <div class="field">
-        <label>Mes de la aportación extra</label>
-        <input type="month" id="in-extra-mes" value="2026-12">
+      <div class="field" style="grid-column:1 / -1;">
+        <label>Aportaciones extra puntuales</label>
+        <div id="lista-extras"></div>
+        <button type="button" class="back" onclick="anadirExtra()" style="margin-top:6px;cursor:pointer;background:none;">+ Añadir aportación extra</button>
+        <div class="hint">p.ej. una paga extra o un objetivo de beneficios anual que vayas metiendo en varias partidas</div>
       </div>
       <div class="field">
         <label>Mes de pago del IRPF</label>
@@ -509,9 +506,10 @@ function simular(inputs) {
     // ver fijarMesActual), así que esta aportación aún no se ha hecho y
     // cuenta como cualquier otro mes.
     let aportacion = inputs.aportacionMensual;
-    if (inputs.extraImporte && mes.getFullYear() === inputs.extraAnio && (mes.getMonth()+1) === inputs.extraMes) {
-      aportacion += inputs.extraImporte;
-    }
+    const extraDelMes = (inputs.extrasPuntuales || [])
+      .filter(e => e.anio === mes.getFullYear() && e.mes === (mes.getMonth() + 1))
+      .reduce((s, e) => s + e.importe, 0);
+    aportacion += extraDelMes;
 
     const nuevoAnio = i === 0 || filas[i-1].mesObj.getFullYear() !== mes.getFullYear();
     cumAnual += beneficioBruto;
@@ -570,17 +568,41 @@ function actualizarColoresGrafica() {
   chartCapital.update();
 }
 
+function leerExtrasPuntuales() {
+  const filas = document.querySelectorAll('#lista-extras .fila-extra');
+  const extras = [];
+  filas.forEach(fila => {
+    const mesInput = fila.querySelector('input[type="month"]').value;
+    const importe = parseFloat(fila.querySelector('input[type="number"]').value) || 0;
+    if (!mesInput || importe === 0) return;
+    const [anio, mes] = mesInput.split('-').map(Number);
+    extras.push({ anio, mes, importe });
+  });
+  return extras;
+}
+
+function anadirExtra(mesInicial, importeInicial) {
+  const cont = document.getElementById('lista-extras');
+  const fila = document.createElement('div');
+  fila.className = 'fila-extra';
+  fila.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px;';
+  fila.innerHTML = `
+    <input type="month" value="${mesInicial || '2026-12'}" style="flex:1;">
+    <input type="number" placeholder="Importe (€)" step="1" value="${importeInicial || ''}" style="flex:1;">
+    <button type="button" class="back" onclick="this.parentElement.remove()" style="cursor:pointer;background:none;padding:6px 10px;">✕</button>
+  `;
+  cont.appendChild(fila);
+}
+
 function leerInputs() {
   const [anioInicio, mesInicio] = document.getElementById('in-inicio').value.split('-').map(Number);
-  const [extraAnio, extraMes] = document.getElementById('in-extra-mes').value.split('-').map(Number);
   return {
     capitalInicial: parseFloat(document.getElementById('in-capital').value) || 0,
     rentabilidadMensual: (parseFloat(document.getElementById('in-rentabilidad').value) || 0) / 100,
     aportacionMensual: parseFloat(document.getElementById('in-aportacion').value) || 0,
     anioInicio, mesInicio,
     mesesSimulados: parseInt(document.getElementById('in-meses').value) || 0,
-    extraImporte: parseFloat(document.getElementById('in-extra-importe').value) || 0,
-    extraAnio, extraMes,
+    extrasPuntuales: leerExtrasPuntuales(),
     mesPagoIRPF: parseInt(document.getElementById('in-mes-irpf').value),
     modoRetirada: document.getElementById('in-modo').value,
     pctRetirada: (parseFloat(document.getElementById('in-pct-retirada').value) || 0) / 100,
