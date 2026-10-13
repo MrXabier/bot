@@ -620,6 +620,11 @@ function recalcular() {
   const totalRetirado = filas.reduce((s, f) => s + f.retirada, 0);
   const totalImpuestosPagados = filas.reduce((s, f) => s + f.pagoIRPF, 0);
   const gananciaTotal = (ultima ? ultima.capitalFinal : inputs.capitalInicial) + totalRetirado - totalAportado;
+  const primeraRetirada = filas.find(f => f.retirada > 0);
+  const inicioSueldo = primeraRetirada
+    ? MESES_ES[primeraRetirada.mesObj.getMonth()] + ' ' + primeraRetirada.mesObj.getFullYear()
+    : '—';
+  const mesesHastaSueldo = primeraRetirada ? filas.indexOf(primeraRetirada) + 1 : null;
 
   document.getElementById('kpis-resultado').innerHTML = `
     <div class="kpi"><div class="label">Capital final</div>
@@ -637,6 +642,9 @@ function recalcular() {
     <div class="kpi"><div class="label">Ganancia total</div>
       <div class="value ${gananciaTotal>=0?'up':'down'}">${gananciaTotal>=0?'+':''}${euro(gananciaTotal)}</div>
       <div class="sub">capital final + retirado − aportado</div></div>
+    <div class="kpi"><div class="label">Inicio del "sueldo"</div>
+      <div class="value">${inicioSueldo}</div>
+      <div class="sub">${mesesHastaSueldo ? `mes ${mesesHastaSueldo} de la simulación` : 'no se alcanza el objetivo'}</div></div>
   `;
 
   const c = coloresGrafica();
